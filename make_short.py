@@ -1,6 +1,6 @@
 """InsideYou Shorts generator - fetched and run by the Kaggle notebook on every run.
 Edit settings in the notebook, not here. This file is updated from GitHub automatically."""
-GENERATOR_VERSION = "2026-10-25.1"
+GENERATOR_VERSION = "2026-10-25.2"
 print("Generator version:", GENERATOR_VERSION)
 # ===================== DEFAULT SETTINGS (used only if your notebook doesn't set them) =====================
 if "TOPIC" not in globals():
@@ -248,10 +248,11 @@ def build_short(shots, workdir, out_path, music=None, hook_title=""):
     clips, all_words, cuts, t0 = [], [], [], 0.0
     for i, s in enumerate(shots, 1):
         clip = workdir / f"clip_{i:02d}.mp4"
+        pad = 0.8 if i == len(shots) else 0.12      # let the last line breathe before the video ends
         if s.get("video"):
-            d = _video_clip(s["video"], s["audio"], clip)
+            d = _video_clip(s["video"], s["audio"], clip, pad=pad)
         else:
-            d = _shot_clip(i, s["image"], s["audio"], clip)
+            d = _shot_clip(i, s["image"], s["audio"], clip, pad=pad)
         clips.append(clip)
         all_words += [(t0 + a, t0 + b, txt) for a, b, txt in s["words"]]
         if i > 1:
@@ -412,13 +413,14 @@ Rules:
   "Your fingers aren't absorbing water. Your brain is doing this." / "This is what a sneeze does to your skull."
   Never start with "Did you know", "Have you ever", or a question.
 - Exactly {NUM_SHOTS} shots. Each shot narration is 1-2 short sentences.
-- Last shot is a satisfying payoff. SEAMLESS LOOP: its narration must end mid-thought so that it flows
-  straight into the hook when the video replays (e.g. last line "...and that's exactly why" -> hook "Your
-  fingers aren't absorbing water."). Its image must use the SAME framing, camera angle and setting as shot 1,
-  so the replay feels continuous.
+- Last shot is a satisfying payoff that ENDS WITH A COMPLETE SENTENCE (never stop mid-sentence or on words
+  like "because", "and", "so"). Make the final line a clear, punchy conclusion that echoes the hook's idea.
+  Its image uses the SAME framing, camera angle and setting as shot 1, so a replay feels smooth.
 - hook_title: 2-5 punchy words in CAPS shown on screen for the first second (e.g. "YOUR BRAIN DID THIS").
 - Facts must be accurate and mainstream-science; no medical advice, no gore.
-- CAST: the lead is ALWAYS "Hero": {BRAND_CHARACTER}.
+- CAST: the lead is ALWAYS "Hero": {BRAND_CHARACTER}. Hero ALWAYS wears his exact outfit - never shirtless,
+  never in a hospital gown, never changes clothes. For scans/X-ray/inside-the-body shots, show a transparent
+  or cross-section view of his body WITH his t-shirt still visible, or show only the organ.
   Add other characters ONLY when the story needs them (a doctor, a friend, a lifeguard, a kid, an astronaut,
   a crowd...). Use as many or as few as the story needs - often just Hero. Give every extra character a short
   unique name and a fixed, very specific look (age, gender, hair, skin tone, outfit with colors) so they can be
@@ -505,7 +507,9 @@ def sheet_prompt(name, look):
 
 def full_prompt(s):
     who = " ".join(f"{n}: {cast[n]}." for n in s["characters"])
-    return f"{s['image_prompt']}. {('Characters in this shot - ' + who + ' ') if who else ''}{STYLE}"
+    lock = (" Every character is fully dressed in EXACTLY the outfit from their reference sheet - "
+            "never shirtless, never undressed, never in different clothes.") if who else ""
+    return f"{s['image_prompt']}. {('Characters in this shot - ' + who + lock + ' ') if who else ''}{STYLE}"
 
 def refs_for(s):
     refs = [(n, sheet_path(n)) for n in s["characters"]]
