@@ -165,7 +165,10 @@ def voice(text, mp3_path):
 
     async def run():
         words = []
-        comm = edge_tts.Communicate(text, C.VOICE, rate=C.VOICE_RATE, boundary="WordBoundary")
+        try:
+            comm = edge_tts.Communicate(text, C.VOICE, rate=C.VOICE_RATE, boundary="WordBoundary")
+        except TypeError:                      # older edge-tts versions emit word boundaries by default
+            comm = edge_tts.Communicate(text, C.VOICE, rate=C.VOICE_RATE)
         with open(mp3_path, "wb") as f:
             async for chunk in comm.stream():
                 if chunk["type"] == "audio":
@@ -176,7 +179,15 @@ def voice(text, mp3_path):
 
     for attempt in range(3):
         try:
-            return asyncio.run(run())
+            words = asyncio.run(run())
+            if not words:                      # no timings: spread words evenly over the audio
+                out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                      "-of", "default=nw=1:nk=1", str(mp3_path)], capture_output=True, text=True)
+                dur = float(out.stdout.strip() or 1)
+                ws = text.split()
+                step = dur / max(1, len(ws))
+                words = [(k * step, (k + 1) * step * 0.95, w) for k, w in enumerate(ws)]
+            return words
         except Exception:
             if attempt == 2:
                 raise

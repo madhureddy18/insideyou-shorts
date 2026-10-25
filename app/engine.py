@@ -246,10 +246,16 @@ def step_images(job: Job, redo=None):
             ai.image(_sheet_prompt(cast[n]), p)
             job.put(p.name)
     todo = redo or [i for i in range(1, len(sc["shots"]) + 1) if not _valid(job.dir / f"shot_{i:02d}.png")]
-    # shot 1 first: the last shot copies its framing
-    for i in sorted(todo):
-        job.log(f"Drawing shot {i} of {len(sc['shots'])}")
-        _make_shot(job, sc, i)
+    # shot 1 first (the last shot copies its framing), then the rest 3 at a time
+    todo = sorted(todo)
+    if todo and todo[0] == 1:
+        job.log(f"Drawing shot 1 of {len(sc['shots'])}")
+        _make_shot(job, sc, 1)
+        todo = todo[1:]
+    if todo:
+        job.log(f"Drawing shots {', '.join(map(str, todo))}...")
+        with ThreadPoolExecutor(3) as ex:
+            list(ex.map(lambda k: _make_shot(job, sc, k), todo))
     imgs = [i for i in range(1, len(sc["shots"]) + 1) if _valid(job.dir / f"shot_{i:02d}.png")]
     job.log("Images ready - review them" if len(imgs) == len(sc["shots"]) else "Some images failed - redo them")
     job.save(stage="images_ready", images=imgs)
