@@ -57,10 +57,7 @@ current_env(){  # read an env var from the already-deployed app (so re-deploys k
   gcloud run services describe "$SERVICE" --region "$REGION" --format=json 2>/dev/null | python3 -c \
     "import json,sys;e=json.load(sys.stdin)['spec']['template']['spec']['containers'][0].get('env',[]);print(next((x.get('value','') for x in e if x['name']=='$1'),''))" 2>/dev/null || true
 }
-APP_PASSWORD="${APP_PASSWORD:-$(current_env APP_PASSWORD)}"
-if [ -z "$APP_PASSWORD" ]; then
-  read -r -s -p "Choose a password for your app: " APP_PASSWORD; echo
-fi
+APP_PASSWORD="${APP_PASSWORD:-$(current_env APP_PASSWORD)}"   # optional: no password = no login screen
 APP_SECRET="${APP_SECRET:-$(current_env APP_SECRET)}"
 APP_SECRET="${APP_SECRET:-$(python3 -c 'import secrets;print(secrets.token_hex(24))')}"
 ENVS="PROJECT_ID=${PROJECT},BUCKET=${BUCKET},REGION=${REGION},WORKER_JOB=${JOB},RUN_MODE=cloudrun"
@@ -73,11 +70,11 @@ gcloud run jobs deploy "$JOB" --image "$IMAGE" --region "$REGION" --service-acco
 say "Deploying the web app"
 if ! gcloud run deploy "$SERVICE" --image "$IMAGE" --region "$REGION" --service-account "$SA" \
     --no-invoker-iam-check --cpu 1 --memory 1Gi --min-instances 0 --max-instances 2 --timeout 300 \
-    --set-env-vars "${ENVS},APP_PASSWORD=${APP_PASSWORD},APP_SECRET=${APP_SECRET}" --quiet; then
+    --set-env-vars "${ENVS}${APP_PASSWORD:+,APP_PASSWORD=${APP_PASSWORD}},APP_SECRET=${APP_SECRET}" --quiet; then
   say "Retrying with public access flag"
   gcloud run deploy "$SERVICE" --image "$IMAGE" --region "$REGION" --service-account "$SA" \
     --allow-unauthenticated --cpu 1 --memory 1Gi --min-instances 0 --max-instances 2 --timeout 300 \
-    --set-env-vars "${ENVS},APP_PASSWORD=${APP_PASSWORD},APP_SECRET=${APP_SECRET}" --quiet
+    --set-env-vars "${ENVS}${APP_PASSWORD:+,APP_PASSWORD=${APP_PASSWORD}},APP_SECRET=${APP_SECRET}" --quiet
 fi
 
 URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')
