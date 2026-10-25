@@ -50,7 +50,8 @@ gcloud artifacts repositories describe "$REPO" --location="$REGION" >/dev/null 2
   gcloud artifacts repositories create "$REPO" --repository-format=docker --location="$REGION" --quiet
 
 say "Building the app (~3-5 min)"
-gcloud builds submit --tag "$IMAGE" --quiet .
+gcloud builds submit --tag "$IMAGE" --region "$REGION" \
+  --gcs-source-staging-dir "gs://${BUCKET}/build-source" --gcs-log-dir "gs://${BUCKET}/build-logs" --quiet .
 
 current_env(){  # read an env var from the already-deployed app (so re-deploys keep your password)
   gcloud run services describe "$SERVICE" --region "$REGION" --format=json 2>/dev/null | python3 -c \
