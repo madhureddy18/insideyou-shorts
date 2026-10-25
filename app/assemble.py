@@ -1,0 +1,193 @@
+"""FFmpeg assembly: clips, captions, hook title, sound design, loudness."""
+import subprocess, urllib.request
+from pathlib import Path
+
+W, H, FPS = 1080, 1920, 30
+
+def _run(cmd):
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError("ffmpeg failed:\n" + r.stderr[-2000:])
+
+def _dur(path):
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                          "-of", "default=nw=1:nk=1", str(path)], capture_output=True, text=True).stdout
+    return float(out.strip())
+
+def _font(workdir):
+    """Bold caption font baked into the container (FONT_DIR); falls back to DejaVu Sans."""
+    import os
+    fdir = Path(os.environ.get("FONT_DIR", "/app/fonts"))
+    if fdir.exists():
+        names = {p.name for p in fdir.glob("*.ttf") if p.stat().st_size > 10000}
+        if "Montserrat-ExtraBold.ttf" in names:
+            return fdir, "Montserrat ExtraBold"
+        if any(n.startswith("Montserrat") for n in names):
+            return fdir, "Montserrat"
+    fdir = Path(workdir) / "fonts"
+    fdir.mkdir(exist_ok=True)
+    return fdir, "DejaVu Sans"
+
+# Camera moves, cycled per shot (Zack D style slow push-ins / pulls / drifts)
+MOVES = [
+    ("1.0+0.18*on/{N}", "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"),            # push in
+    ("1.18-0.18*on/{N}", "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"),           # pull out
+    ("1.12", "iw/2-(iw/zoom/2)", "(ih-ih/zoom)*(1-on/{N})"),                # drift up
+    ("1.0+0.22*on/{N}", "iw/2-(iw/zoom/2)", "ih/3-(ih/zoom/3)"),            # push in, upper
+    ("1.12", "(iw-iw/zoom)*on/{N}", "ih/2-(ih/zoom/2)"),                    # drift sideways
+]
+
+def _video_clip(video, audio, out, pad=0.12):
+    """Fit an AI video clip to the narration length: trim, gently slow down, or hold the last frame."""
+    d = _dur(audio) + pad
+    vd = _dur(video)
+    speed = ""
+    if vd < d:
+        f = min(d / vd, 1.35)                       # slow down at most 35%
+        speed = f"setpts={f:.4f}*PTS,"
+        hold = max(0.0, d - vd * f)
+        tail = f",tpad=stop_mode=clone:stop_duration={hold + 0.1:.3f}" if hold > 0 else ""
+    else:
+        tail = ""
+    vf = (f"{speed}fps={FPS},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
+          f"crop={W}:{H},setsar=1{tail},format=yuv420p")
+    _run(["ffmpeg", "-y", "-i", str(video), "-i", str(audio),
+          "-filter_complex", f"[0:v]{vf}[v];[1:a]apad,atrim=0:{d:.3f},aresample=44100[a]",
+          "-map", "[v]", "-map", "[a]", "-t", f"{d:.3f}",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+          "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", str(out)])
+    return d
+
+def _shot_clip(i, image, audio, out, pad=0.12):
+    d = _dur(audio) + pad
+    n = int(round(d * FPS))
+    z, x, y = [s.format(N=n) for s in MOVES[(i - 1) % len(MOVES)]]
+    vf = (f"scale={W*2}:{H*2}:force_original_aspect_ratio=increase:flags=lanczos,"
+          f"crop={W*2}:{H*2},"
+          f"zoompan=z='{z}':x='{x}':y='{y}':d={n}:s={W}x{H}:fps={FPS},"
+          f"format=yuv420p")
+    _run(["ffmpeg", "-y", "-loop", "1", "-i", str(image), "-i", str(audio),
+          "-filter_complex", f"[0:v]{vf}[v];[1:a]apad,atrim=0:{d:.3f},aresample=44100[a]",
+          "-map", "[v]", "-map", "[a]", "-frames:v", str(n), "-t", f"{d:.3f}",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+          "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", str(out)])
+    return d
+
+def _ts(t):
+    h = int(t // 3600); m = int(t % 3600 // 60); s = t % 60
+    return f"{h}:{m:02d}:{s:05.2f}"
+
+def _ass(words, font, path, hook_title=""):
+    """Word-by-word pop captions: chunks of up to 2 words, active word highlighted yellow."""
+    head = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {W}
+PlayResY: {H}
+WrapStyle: 2
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Cap,{font},92,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,3,2,60,60,560,1
+Style: Hook,{font},118,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,2,0,1,9,5,8,70,70,300,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    lines = []
+    if hook_title:
+        t = hook_title.upper().replace("{", "").replace("}", "")
+        ws = t.split()
+        if len(ws) > 2:                      # break into two balanced lines
+            mid = (len(ws) + 1) // 2
+            t = " ".join(ws[:mid]) + r"\N" + " ".join(ws[mid:])
+        if ws:
+            pre, _, last = t.rpartition(ws[-1])
+            t = pre + r"{\c&H00E5FF&}" + ws[-1] + r"{\c&HFFFFFF&}" + last
+        lines.append(r"Dialogue: 1,0:00:00.00,0:00:01.70,Hook,,0,0,0,,"
+                     r"{\fscx60\fscy60\t(0,120,\fscx108\fscy108)\t(120,220,\fscx100\fscy100)\fad(0,180)}" + t)
+    chunks, cur = [], []
+    for w in words:
+        cur.append(w)
+        if len(cur) == 2 or w[2].rstrip().endswith((".", ",", "?", "!")):
+            chunks.append(cur); cur = []
+    if cur:
+        chunks.append(cur)
+    for ci, ch in enumerate(chunks):
+        nxt = chunks[ci + 1][0][0] if ci + 1 < len(chunks) else ch[-1][1] + 0.4
+        for wi, (s, e, _) in enumerate(ch):
+            end = ch[wi + 1][0] if wi + 1 < len(ch) else nxt
+            parts = []
+            for wj, (_, _, t) in enumerate(ch):
+                t = t.upper().replace("{", "").replace("}", "")
+                parts.append(r"{\c&H00E5FF&}" + t + r"{\c&HFFFFFF&}" if wj == wi else t)
+            pop = r"{\fscx80\fscy80\t(0,90,\fscx105\fscy105)\t(90,160,\fscx100\fscy100)}" if wi == 0 else ""
+            lines.append(f"Dialogue: 0,{_ts(s)},{_ts(max(end, s + 0.05))},Cap,,0,0,0,,{pop}{' '.join(parts)}")
+    Path(path).write_text(head + "\n".join(lines) + "\n", encoding="utf-8")
+
+def _make_sfx(workdir, total):
+    """Synthesized whoosh + soft ambient pad, so no external assets are needed."""
+    wd = Path(workdir)
+    whoosh = wd / "whoosh.wav"
+    _run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anoisesrc=d=0.55:c=pink:a=0.6",
+          "-af", "highpass=f=400,lowpass=f=5000,afade=t=in:d=0.3:curve=exp,afade=t=out:st=0.3:d=0.25,"
+                 "aecho=0.6:0.4:40:0.3,volume=0.5,aresample=44100", "-ac", "2", str(whoosh)])
+    pad = wd / "pad.wav"
+    d = total + 1
+    tones = "+".join(f"0.18*sin(2*PI*{f}*t)*(0.6+0.4*sin(2*PI*{lfo}*t))"
+                     for f, lfo in [(110, 0.07), (164.81, 0.05), (220, 0.09), (261.63, 0.06), (329.63, 0.04)])
+    _run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"aevalsrc='{tones}':s=44100:d={d:.2f}",
+          "-af", f"lowpass=f=1200,aecho=0.8:0.7:120|240:0.35|0.25,afade=t=in:d=1.5,"
+                 f"afade=t=out:st={max(0, d - 2.5):.2f}:d=2.5,volume=0.6", "-ac", "2", str(pad)])
+    return whoosh, pad
+
+def build_short(shots, workdir, out_path, music=None, hook_title=""):
+    """shots: list of {image, video?, audio, words:[(start,end,text) relative to its own audio]}"""
+    workdir = Path(workdir)
+    clips, all_words, cuts, t0 = [], [], [], 0.0
+    for i, s in enumerate(shots, 1):
+        clip = workdir / f"clip_{i:02d}.mp4"
+        pad = 0.8 if i == len(shots) else 0.12      # let the last line breathe before the video ends
+        if s.get("video"):
+            d = _video_clip(s["video"], s["audio"], clip, pad=pad)
+        else:
+            d = _shot_clip(i, s["image"], s["audio"], clip, pad=pad)
+        clips.append(clip)
+        all_words += [(t0 + a, t0 + b, txt) for a, b, txt in s["words"]]
+        if i > 1:
+            cuts.append(t0)
+        t0 += d
+        print(f"  clip {i}: {d:.1f}s")
+    lst = workdir / "clips.txt"
+    lst.write_text("".join(f"file '{c.resolve()}'\n" for c in clips))
+    joined = workdir / "joined.mp4"
+    _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(joined)])
+
+    fdir, font = _font(workdir)
+    ass = workdir / "captions.ass"
+    _ass(all_words, font, ass, hook_title)
+    ass_arg = str(ass).replace("\\", "/").replace(":", r"\:")
+    fd_arg = str(fdir).replace("\\", "/").replace(":", r"\:")
+
+    whoosh, pad = _make_sfx(workdir, t0)
+    bed_in = ["-stream_loop", "-1", "-i", str(music)] if music and Path(music).exists() else ["-i", str(pad)]
+    bed_vol = 0.18 if music and Path(music).exists() else 0.5
+    n = len(cuts)
+    fc = [f"[0:a]asplit=2[voice][sc]",
+          f"[1:a]atrim=0:{t0:.3f},volume={bed_vol},afade=t=out:st={max(0, t0 - 1.5):.3f}:d=1.5[bedraw]",
+          "[bedraw][sc]sidechaincompress=threshold=0.04:ratio=6:attack=15:release=350[bed]"]
+    mix_inputs = "[voice][bed]"
+    if n:
+        fc.append(f"[2:a]asplit={n}" + "".join(f"[w{k}]" for k in range(n)) if n > 1 else "[2:a]anull[w0]")
+        for k, c in enumerate(cuts):
+            ms = int(max(0, c - 0.25) * 1000)
+            fc.append(f"[w{k}]adelay={ms}|{ms}[wd{k}]")
+        mix_inputs += "".join(f"[wd{k}]" for k in range(n))
+    fc.append(f"{mix_inputs}amix=inputs={2 + n}:normalize=0:duration=first,"
+              f"loudnorm=I=-14:TP=-1.5:LRA=11,aresample=44100[aout]")
+    fc.append(f"[0:v]subtitles='{ass_arg}':fontsdir='{fd_arg}'[vout]")
+    _run(["ffmpeg", "-y", "-i", str(joined), *bed_in, "-i", str(whoosh),
+          "-filter_complex", ";".join(fc), "-map", "[vout]", "-map", "[aout]",
+          "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-pix_fmt", "yuv420p",
+          "-c:a", "aac", "-b:a", "192k", "-t", f"{t0:.3f}", "-movflags", "+faststart", str(out_path)])
+    print(f"  total: {t0:.1f}s")
+    return out_path

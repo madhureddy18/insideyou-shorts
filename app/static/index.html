@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>InsideYou Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a; --text:#eef0f4; --muted:#9aa3b2;
+  --accent:#f2b630; --accent-ink:#1a1405; --ok:#3ecf8e; --warn:#ff9f43; --bad:#ff5d5d; --r:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+button{font:inherit;cursor:pointer;border:0;border-radius:12px;padding:12px 16px;background:var(--panel2);color:var(--text);transition:transform .08s,opacity .2s}
+button:active{transform:scale(.97)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{background:var(--accent);color:var(--accent-ink);font-weight:600}
+button.ghost{background:transparent;border:1px solid var(--line)}
+button.danger{background:transparent;color:var(--bad);border:1px solid #4a2a2a}
+input,textarea,select{font:inherit;width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:12px}
+textarea{resize:vertical;min-height:64px}
+input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+.wrap{max-width:980px;margin:0 auto;padding:16px 16px 96px}
+header{display:flex;align-items:center;gap:10px;padding:6px 0 18px}
+.logo{width:34px;height:34px;border-radius:10px;background:var(--accent);display:grid;place-items:center;color:var(--accent-ink);font:700 18px "Space Grotesk"}
+h1,h2,h3{font-family:"Space Grotesk",sans-serif;margin:0;letter-spacing:-.01em}
+h1{font-size:20px} h2{font-size:22px;margin-bottom:6px} h3{font-size:16px}
+.muted{color:var(--muted)} .small{font-size:13px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:16px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.spacer{flex:1}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.seg button{padding:12px 8px;text-align:left;border:1px solid var(--line);background:var(--bg)}
+.seg button.on{border-color:var(--accent);background:#2a2412}
+.seg b{display:block;font-size:14px}
+.seg span{font-size:12px;color:var(--muted)}
+label.lbl{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px}
+.toggle{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:14px}
+.toggle input{width:20px;height:20px;accent-color:var(--accent)}
+.list{display:grid;gap:10px}
+.item{display:flex;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px;text-decoration:none}
+.item img,.item .ph{width:54px;height:96px;border-radius:10px;object-fit:cover;background:var(--panel2);flex:none}
+.item .t{font-weight:600}
+.chip{display:inline-block;font-size:12px;padding:3px 9px;border-radius:99px;background:var(--panel2);color:var(--muted);white-space:nowrap}
+.chip.run{background:#2a2412;color:var(--accent)} .chip.ok{background:#12291f;color:var(--ok)}
+.chip.bad{background:#2c1616;color:var(--bad)} .chip.wait{background:#1d2433;color:#8fb3ff}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0 18px}
+.steps div{height:6px;border-radius:9px;background:var(--panel2)}
+.steps div.on{background:var(--accent)} .steps div.cur{background:linear-gradient(90deg,var(--accent),#7a5c18);animation:pulse 1.4s infinite}
+.stepnames{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:12px;color:var(--muted);margin-top:-12px;margin-bottom:16px}
+@keyframes pulse{50%{opacity:.5}}
+.spin{width:22px;height:22px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite;flex:none}
+@keyframes sp{to{transform:rotate(360deg)}}
+.logs{background:var(--bg);border-radius:12px;padding:10px 12px;font:12px/1.6 ui-monospace,Menlo,monospace;color:var(--muted);max-height:180px;overflow:auto;white-space:pre-wrap;margin-top:12px}
+.shot{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+.shot .n{font:700 13px "Space Grotesk";color:var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.tile{background:var(--bg);border:1px solid var(--line);border-radius:14px;overflow:hidden;position:relative}
+.tile img{width:100%;aspect-ratio:9/16;object-fit:cover;display:block;background:var(--panel2)}
+.tile .cap{padding:8px 10px;font-size:12px;color:var(--muted);min-height:54px}
+.tile .num{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.65);border-radius:8px;padding:2px 8px;font:700 12px "Space Grotesk"}
+.tile.sel{outline:3px solid var(--accent)}
+.tile .pick{position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.6);display:grid;place-items:center;font-size:14px;padding:0}
+.tile.sel .pick{background:var(--accent);color:var(--accent-ink)}
+.cast{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
+.cast figure{margin:0;text-align:center;flex:none}
+.cast img{width:64px;height:112px;object-fit:cover;border-radius:10px;background:var(--panel2)}
+.cast figcaption{font-size:11px;color:var(--muted)}
+video{width:100%;max-width:360px;aspect-ratio:9/16;border-radius:16px;background:#000;display:block;margin:0 auto}
+.copybox{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px;white-space:pre-wrap;font-size:13px}
+.clipgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-top:12px}
+.clipgrid div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:12px}
+.sticky{position:fixed;left:0;right:0;bottom:0;background:linear-gradient(transparent,var(--bg) 30%);padding:24px 16px calc(16px + env(safe-area-inset-bottom))}
+.sticky .in{max-width:980px;margin:0 auto;display:flex;gap:10px}
+.sticky button{flex:1;padding:15px}
+.toast{position:fixed;left:50%;top:16px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);padding:10px 16px;border-radius:12px;z-index:9;font-size:14px;display:none}
+.center{min-height:80vh;display:grid;place-items:center}
+.notes{margin:10px 0 0;padding-left:18px;font-size:13px;color:var(--muted)}
+.hero{display:flex;gap:14px;align-items:center}
+.hero img{width:56px;height:98px;object-fit:cover;border-radius:10px;background:var(--panel2)}
+@media (max-width:560px){ .seg{grid-template-columns:1fr} h2{font-size:20px} }
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="wrap" id="app"></div>
+<div id="sticky"></div>
+<script>
+const $ = s => document.querySelector(s);
+const app = $("#app"), sticky = $("#sticky");
+let CFG = null, timer = null, selected = new Set();
+
+const esc = s => (s ?? "").toString().replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function toast(msg, ms=2600){ const t=$("#toast"); t.textContent=msg; t.style.display="block"; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display="none", ms); }
+
+async function api(path, opts={}){
+  const r = await fetch("/api"+path, {headers:{"Content-Type":"application/json"}, credentials:"same-origin", ...opts,
+                                      body: opts.body ? JSON.stringify(opts.body) : undefined});
+  if (r.status === 401 && path !== "/login") { showLogin(); throw new Error("login"); }
+  const data = await r.json().catch(()=>({}));
+  if (!r.ok) { throw new Error(data.detail || ("Error "+r.status)); }
+  return data;
+}
+
+const STAGE = {
+  queued:["Starting","run"], scripting:["Writing script","run"], script_ready:["Review script","wait"],
+  imaging:["Drawing images","run"], images_ready:["Review images","wait"], animating:["Animating video","run"],
+  done:["Ready","ok"], failed:["Failed","bad"]
+};
+const chip = st => { const [t,c] = STAGE[st] || [st,""]; return `<span class="chip ${c}">${t}</span>`; };
+const file = (id, name, v) => `/api/jobs/${id}/file/${name}?v=${encodeURIComponent(v||"")}`;
+const cost = (n, a) => CFG ? CFG.rs_base + (a==="none"?0:a==="hook"?1:n)*CFG.rs_per_shot : 0;
+
+function header(back){
+  return `<header>${back?`<button class="ghost" onclick="location.hash='#/'" aria-label="Back">←</button>`:""}
+    <div class="logo">i</div><h1>InsideYou Studio</h1></header>`;
+}
+
+/* ---------------- login ---------------- */
+function showLogin(){
+  clearInterval(timer); sticky.innerHTML="";
+  app.innerHTML = `<div class="center"><div class="card" style="width:100%;max-width:380px">
+    <div class="row" style="margin-bottom:14px"><div class="logo">i</div><h1>InsideYou Studio</h1></div>
+    <label class="lbl">Password</label><input id="pw" type="password" autocomplete="current-password">
+    <button class="primary" style="width:100%;margin-top:14px" id="go">Log in</button></div></div>`;
+  const go = async () => { try { await api("/login",{method:"POST",body:{password:$("#pw").value}}); route(); }
+                           catch(e){ toast(e.message); } };
+  $("#go").onclick = go; $("#pw").onkeydown = e => e.key==="Enter" && go(); $("#pw").focus();
+}
+
+/* ---------------- home ---------------- */
+async function home(){
+  clearInterval(timer); sticky.innerHTML="";
+  CFG = CFG || await api("/config");
+  const fresh = CFG.topics.filter(t=>!t.used).length;
+  app.innerHTML = header(false) + `
+  <div class="card">
+    <h2>New Short</h2><div class="muted small">${fresh} fresh topics left in your bank</div>
+    <label class="lbl">Topic</label>
+    <select id="topicSel">
+      <option value="">🎲 Surprise me (unused topic)</option>
+      ${CFG.topics.map(t=>`<option value="${esc(t.topic)}">${t.used?"✓ ":""}${esc(t.topic)}</option>`).join("")}
+      <option value="__custom">✏️ Type my own topic…</option>
+    </select>
+    <input id="topicTxt" placeholder="e.g. What happens to your body if you sleep only 4 hours" style="display:none;margin-top:8px">
+    <label class="lbl">Animation</label>
+    <div class="seg" id="seg">
+      <button data-a="all" class="on"><b>Every shot</b><span id="c_all"></span></button>
+      <button data-a="hook"><b>Hook only</b><span id="c_hook"></span></button>
+      <button data-a="none"><b>No video</b><span id="c_none"></span></button>
+    </div>
+    <label class="lbl">Number of shots: <b id="nsv">7</b></label>
+    <input id="ns" type="range" min="5" max="9" value="7" style="padding:0;accent-color:var(--accent)">
+    <label class="toggle"><input type="checkbox" id="auto"> Skip reviews (fully automatic)</label>
+    <button class="primary" style="width:100%;margin-top:16px;padding:15px" id="create">Create Short</button>
+  </div>
+  <div class="row" style="margin:22px 0 10px"><h3>Your Shorts</h3><span class="spacer"></span>
+    ${CFG.has_hero?`<a href="/api/brand/hero" target="_blank" class="small muted">mascot</a>`:""}</div>
+  <div class="list" id="jobs"><div class="muted small">Loading…</div></div>`;
+  let animate = "all";
+  const upd = () => { const n=+$("#ns").value; $("#nsv").textContent=n;
+    ["all","hook","none"].forEach(a=>$("#c_"+a).textContent=`≈ ₹${cost(n,a)}`); };
+  upd(); $("#ns").oninput = upd;
+  $("#seg").onclick = e => { const b=e.target.closest("button"); if(!b) return;
+    animate=b.dataset.a; [...$("#seg").children].forEach(x=>x.classList.toggle("on", x===b)); };
+  $("#topicSel").onchange = () => { const c=$("#topicSel").value==="__custom"; $("#topicTxt").style.display=c?"block":"none"; if(c) $("#topicTxt").focus(); };
+  $("#create").onclick = async () => {
+    const sel=$("#topicSel").value, topic = sel==="__custom" ? $("#topicTxt").value.trim() : sel;
+    if (sel==="__custom" && !topic) return toast("Type a topic first");
+    $("#create").disabled = true;
+    try { const st = await api("/jobs",{method:"POST",body:{topic, animate, num_shots:+$("#ns").value, auto:$("#auto").checked}});
+          location.hash = "#/job/"+st.id; }
+    catch(e){ toast(e.message); $("#create").disabled=false; }
+  };
+  try {
+    const jobs = await api("/jobs");
+    $("#jobs").innerHTML = jobs.length ? jobs.map(j=>`
+      <a class="item" href="#/job/${j.id}">
+        ${(j.images||[]).length?`<img loading="lazy" src="${file(j.id,"shot_01.png",j.updated)}" alt="">`:`<div class="ph"></div>`}
+        <div style="min-width:0;flex:1"><div class="t">${esc(j.title||j.topic||"Picking a topic…")}</div>
+        <div class="muted small">${esc((j.created||"").replace("T"," ").slice(0,16))}</div></div>${chip(j.stage)}</a>`).join("")
+      : `<div class="muted small">No Shorts yet - create your first one above.</div>`;
+  } catch(e){}
+}
+
+/* ---------------- job page ---------------- */
+async function jobPage(id){
+  clearInterval(timer); selected = new Set();
+  let lastKey = "";
+  const load = async () => {
+    let d; try { d = await api("/jobs/"+id); } catch(e){ if(e.message!=="login") app.innerHTML=header(true)+`<div class="card">${esc(e.message)}</div>`; return; }
+    const st = d.state, key = st.stage+"|"+st.updated;
+    if (key === lastKey) return; lastKey = key;
+    // keep typing in progress safe: don't re-render the script editor while user edits
+    if (st.stage==="script_ready" && document.activeElement && document.activeElement.closest && document.activeElement.closest("#editor")) return;
+    render(d);
+  };
+  await load();
+  timer = setInterval(load, 3000);
+}
+
+function progressBar(stage){
+  const order = ["script","images","video","done"];
+  const at = {queued:0,scripting:0,script_ready:1,imaging:1,images_ready:2,animating:2,done:4,failed:-1}[stage] ?? 0;
+  const running = ["queued","scripting","imaging","animating"].includes(stage);
+  return `<div class="steps">${order.map((_,i)=>`<div class="${i<at?"on":(i===at&&running?"cur":"")}"></div>`).join("")}</div>
+    <div class="stepnames"><span>Script</span><span>Images</span><span>Video</span><span>Done</span></div>`;
+}
+
+function render(d){
+  const st = d.state, sc = d.script, id = st.id;
+  const running = ["queued","scripting","imaging","animating"].includes(st.stage) && st.busy !== false;
+  let html = header(true) + `<div class="row" style="margin-bottom:6px"><h2 style="margin:0">${esc(sc?.title || st.topic || "New Short")}</h2></div>
+    <div class="row muted small" style="margin-bottom:14px">${chip(st.stage)}<span>${esc(st.topic||"")}</span></div>` + progressBar(st.stage);
+  sticky.innerHTML = "";
+
+  if (running || st.stage==="queued") {
+    html += `<div class="card"><div class="row"><div class="spin"></div><b>${esc(st.status||"Working…")}</b></div>
+      <div class="muted small" style="margin-top:6px">You can close this page - it keeps running in the cloud.</div>
+      ${st.stage==="animating" && Object.keys(st.clips||{}).length ? `<div class="clipgrid">${Object.entries(st.clips).map(([k,v])=>
+        `<div>Shot ${k}<br>${v==="ok"?'<span style="color:var(--ok)">✓ animated</span>':v==="animating"?'<span style="color:var(--accent)">animating…</span>':v.startsWith("zoom")?'<span style="color:var(--warn)">still + zoom</span>':'<span class="muted">waiting</span>'}</div>`).join("")}</div>`:""}
+      <div class="logs" id="logs">${esc((st.logs||[]).slice(-14).join("\n"))}</div></div>`;
+    if (st.stage==="imaging" && (st.images||[]).length) html += imagesGrid(st, sc, false);
+  }
+  else if (st.stage==="failed" || (["scripting","imaging","animating"].includes(st.stage) && st.busy===false)) {
+    if (st.stage!=="failed") { st.error = "This step stopped without finishing (it may have timed out)."; st.failed_step = {scripting:"script",imaging:"images",animating:"video"}[st.stage]; }
+    html += `<div class="card"><h3 style="color:var(--bad)">Something went wrong</h3>
+      <div class="muted small" style="margin:6px 0 12px">${esc(st.error||"")}</div>
+      <div class="logs">${esc((st.logs||[]).slice(-10).join("\n"))}</div></div>`;
+    sticky.innerHTML = `<div class="sticky"><div class="in"><button class="primary" onclick="step('${id}','${st.failed_step==="auto"?"script":(st.failed_step||"script")}')">Retry</button></div></div>`;
+  }
+  else if (st.stage==="script_ready" && sc) {
+    html += `<div class="card" id="editor"><h3>Review the script</h3>
+      <div class="muted small">Edit anything you like. The fact-checker already reviewed it:</div>
+      <ul class="notes">${(sc.fact_check||[]).map(c=>`<li>${esc(c)}</li>`).join("")}</ul>
+      <label class="lbl">Video title</label><input id="e_title" value="${esc(sc.title)}">
+      <label class="lbl">Hook title (on screen for the first second)</label><input id="e_hook" value="${esc(sc.hook_title||"")}">
+      <label class="lbl">Cast</label><div class="small">${sc.cast.map(c=>`<span class="chip" title="${esc(c.look)}">${esc(c.name)}</span>`).join(" ")}</div>
+      <label class="lbl">Narration</label>
+      ${sc.shots.map((s,i)=>`<div class="shot"><div class="row"><span class="n">SHOT ${i+1}${i===0?" · HOOK":""}</span><span class="spacer"></span>
+        <span class="small muted">${s.characters.length?esc(s.characters.join(", ")):"no people"}</span></div>
+        <textarea class="e_n" rows="2">${esc(s.narration)}</textarea>
+        <div class="small muted">🎨 ${esc(s.image_prompt)}</div></div>`).join("")}
+    </div>`;
+    sticky.innerHTML = `<div class="sticky"><div class="in">
+      <button class="ghost" onclick="regenScript('${id}')">New script</button>
+      <button class="primary" onclick="approveScript('${id}')">Save & draw images</button></div></div>`;
+  }
+  else if (st.stage==="images_ready" && sc) {
+    const n = sc.shots.length, missing = n - (st.images||[]).length, c = cost(n, st.animate);
+    html += imagesGrid(st, sc, true);
+    sticky.innerHTML = `<div class="sticky"><div class="in">
+      <button class="ghost" id="redoBtn" onclick="redo('${id}')" disabled>Redo selected</button>
+      <button class="primary" ${missing?"disabled":""} onclick="startVideo('${id}', ${c})">${st.animate==="none"?"Make video":"Animate"} · ≈ ₹${c}</button></div></div>`;
+  }
+  else if (st.stage==="done") {
+    const lines = (d.upload||"").split("\n");
+    html += `<div class="card"><video controls playsinline preload="metadata" poster="${file(id,"shot_01.png",st.updated)}" src="${file(id,"final.mp4",st.updated)}"></video>
+      <div class="row" style="margin-top:14px">
+        <a href="${file(id,"final.mp4","dl")}" download style="flex:1"><button class="primary" style="width:100%">Download video</button></a>
+        <button class="ghost" style="flex:1" onclick="copyText('upload')">Copy upload text</button></div>
+      <label class="lbl">Upload text</label><div class="copybox" id="upload">${esc(d.upload)}</div>
+      <div class="small muted" style="margin-top:10px">Tip: when uploading, tick YouTube's "altered or synthetic content" box and Instagram's "AI info" label.</div></div>
+      ${Object.keys(st.clips||{}).length?`<div class="card small muted">Clips: ${Object.entries(st.clips).map(([k,v])=>`shot ${k} ${v==="ok"?"✓":"still"}`).join(" · ")}</div>`:""}
+      <div class="row"><button class="danger" onclick="del('${id}')">Delete</button><span class="spacer"></span>
+      <button class="ghost" onclick="location.hash='#/'">Make another</button></div>`;
+  }
+  app.innerHTML = html;
+  const lg = $("#logs"); if (lg) lg.scrollTop = lg.scrollHeight;
+  bindTiles();
+}
+
+function imagesGrid(st, sc, interactive){
+  const imgs = new Set(st.images||[]);
+  const people = new Set(sc.shots.flatMap(s=>s.characters));
+  return `<div class="card"><div class="row"><h3>${interactive?"Review the images":"Images so far"}</h3><span class="spacer"></span>
+      ${interactive?`<span class="small muted">Tap images to select for redo</span>`:""}</div>
+    ${people.size?`<label class="lbl">Cast</label><div class="cast">${[...people].map(n=>`<figure><img src="${file(st.id,"cast_"+n.replace(/[^A-Za-z0-9]+/g,"_")+".png",st.updated)}" alt=""><figcaption>${esc(n)}</figcaption></figure>`).join("")}</div>`:""}
+    <label class="lbl">Shots</label><div class="grid">
+    ${sc.shots.map((s,i)=>{ const k=i+1, has=imgs.has(k);
+      return `<div class="tile ${selected.has(k)?"sel":""}" data-k="${k}" ${interactive?'role="button" tabindex="0"':""}>
+        <span class="num">${k}</span>${interactive?`<button class="pick" aria-label="Select shot ${k}">${selected.has(k)?"✓":"↻"}</button>`:""}
+        ${has?`<img loading="lazy" src="${file(st.id,`shot_${String(k).padStart(2,"0")}.png`,st.updated)}" alt="Shot ${k}">`:`<div style="aspect-ratio:9/16;display:grid;place-items:center" class="muted small">${interactive?"failed - select to redo":"…"}</div>`}
+        <div class="cap">${esc(s.narration)}</div></div>`; }).join("")}
+    </div></div>`;
+}
+
+function bindTiles(){
+  document.querySelectorAll(".tile[role=button]").forEach(t => t.onclick = () => {
+    const k = +t.dataset.k; selected.has(k) ? selected.delete(k) : selected.add(k);
+    t.classList.toggle("sel"); t.querySelector(".pick").textContent = selected.has(k) ? "✓" : "↻";
+    const b = $("#redoBtn"); if (b) { b.disabled = !selected.size; b.textContent = selected.size ? `Redo ${selected.size} image${selected.size>1?"s":""}` : "Redo selected"; }
+  });
+}
+
+/* ---------------- actions ---------------- */
+async function step(id, s, shots){
+  try { await api(`/jobs/${id}/step`, {method:"POST", body:{step:s, shots}}); selected = new Set(); jobPage(id); }
+  catch(e){ toast(e.message); }
+}
+async function saveScript(id){
+  const narrations = [...document.querySelectorAll(".e_n")].map(t=>t.value);
+  await api(`/jobs/${id}/script`, {method:"PUT", body:{title:$("#e_title").value, hook_title:$("#e_hook").value, narrations}});
+}
+async function approveScript(id){ try { await saveScript(id); step(id, "images"); } catch(e){ toast(e.message); } }
+function regenScript(id){ if (confirm("Write a completely new script for this topic?")) step(id, "script"); }
+function redo(id){ if (selected.size) step(id, "images", [...selected].sort((a,b)=>a-b)); }
+function startVideo(id, c){ if (confirm(`Start video generation? This uses about ₹${c} of your credits.`)) step(id, "video"); }
+async function del(id){ if (!confirm("Delete this Short permanently?")) return;
+  try { await api(`/jobs/${id}`, {method:"DELETE"}); location.hash="#/"; } catch(e){ toast(e.message); } }
+function copyText(elId){ navigator.clipboard.writeText($("#"+elId).innerText).then(()=>toast("Copied!")); }
+
+/* ---------------- router ---------------- */
+async function route(){
+  const h = location.hash.replace(/^#/, "") || "/";
+  try { CFG = CFG || await api("/config"); } catch(e){ return; }
+  const m = h.match(/^\/job\/([\w-]+)/);
+  m ? jobPage(m[1]) : home();
+}
+window.onhashchange = route;
+route();
+</script>
+</body>
+</html>

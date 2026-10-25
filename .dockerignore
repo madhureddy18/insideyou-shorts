@@ -1,0 +1,5 @@
+.git
+__pycache__
+data
+*.ipynb
+make_short.py
