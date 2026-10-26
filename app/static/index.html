@@ -117,7 +117,8 @@ const cost = (n, a) => CFG ? CFG.rs_base + (a==="none"?0:a==="hook"?1:n)*CFG.rs_
 
 function header(back){
   return `<header>${back?`<button class="ghost" onclick="location.hash='#/'" aria-label="Back">←</button>`:""}
-    <div class="logo">i</div><h1>InsideYou Studio</h1></header>`;
+    <div class="logo">i</div><h1>InsideYou Studio</h1><span class="spacer"></span>
+    ${back?"":`<button class="ghost" onclick="location.hash='#/face'">🙂 My Face</button>`}</header>`;
 }
 
 /* ---------------- login ---------------- */
@@ -314,11 +315,62 @@ async function del(id){ if (!confirm("Delete this Short permanently?")) return;
   try { await api(`/jobs/${id}`, {method:"DELETE"}); location.hash="#/"; } catch(e){ toast(e.message); } }
 function copyText(elId){ navigator.clipboard.writeText($("#"+elId).innerText).then(()=>toast("Copied!")); }
 
+/* ---------------- my face ---------------- */
+let facePhotos = [];
+function shrink(file){ return new Promise((res, rej) => {
+  const img = new Image(); img.onload = () => {
+    const s = Math.min(1, 1024 / Math.max(img.width, img.height)), c = document.createElement("canvas");
+    c.width = Math.round(img.width*s); c.height = Math.round(img.height*s);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); res(c.toDataURL("image/jpeg", .9)); };
+  img.onerror = rej; img.src = URL.createObjectURL(file); }); }
+
+async function facePage(){
+  clearInterval(timer); sticky.innerHTML = ""; facePhotos = [];
+  const f = await api("/face"), t = Date.now();
+  app.innerHTML = header(true) + `
+  <div class="card"><h2>My Face</h2>
+    <div class="muted small">Use your own face as the channel's 3D animated host. Outfits still change per story and
+    "VERSE FILMS" stays on your clothes. Your photos stay private in your own cloud storage.</div>
+    <div class="hero" style="margin-top:16px">
+      ${f.has_face ? `<img src="/api/face/image/current?t=${t}" alt="current face">` : `<div class="ph" style="width:56px;height:98px;border-radius:10px;background:var(--panel2)"></div>`}
+      <div><b>${f.custom ? "Using your face" : "Using the default AI mascot"}</b>
+      <div class="small muted">${esc(f.description || "A new default face is drawn on the next video if none exists.")}</div></div></div>
+  </div>
+  ${f.candidate ? `<div class="card"><h3>Your new 3D face</h3>
+    <img src="/api/face/image/candidate?t=${t}" style="width:100%;max-width:320px;border-radius:16px;display:block;margin:12px auto">
+    <div class="small muted">${esc(f.candidate_description)}</div>
+    <div class="row" style="margin-top:14px"><button class="ghost" style="flex:1" onclick="document.getElementById('fp').click()">Try again</button>
+    <button class="primary" style="flex:1" onclick="faceApprove()">Use this face</button></div></div>` : ""}
+  <div class="card"><h3>${f.candidate ? "Try with new photos" : "Upload 2–4 photos of yourself"}</h3>
+    <div class="small muted">Clear face, good light, one front photo plus side angles. Caps and sunglasses make it harder.</div>
+    <input type="file" id="fp" accept="image/*" multiple style="margin-top:12px">
+    <div class="cast" id="fprev" style="margin-top:12px"></div>
+    <button class="primary" id="fgo" style="width:100%;margin-top:12px" disabled>Create my 3D face</button>
+    <div class="row" id="fwait" style="display:none;margin-top:12px"><div class="spin"></div><span>Creating your 3D face… about 1 minute</span></div>
+  </div>
+  ${f.custom ? `<button class="danger" onclick="faceReset()">Go back to the default mascot</button>` : ""}`;
+  $("#fp").onchange = async e => {
+    const files = [...e.target.files].slice(0, 4);
+    facePhotos = await Promise.all(files.map(shrink));
+    $("#fprev").innerHTML = facePhotos.map(s=>`<figure><img src="${s}"></figure>`).join("");
+    $("#fgo").disabled = !facePhotos.length;
+  };
+  $("#fgo").onclick = async () => {
+    $("#fgo").disabled = true; $("#fwait").style.display = "flex";
+    try { await api("/face/generate", {method:"POST", body:{photos: facePhotos}}); facePage(); }
+    catch(e){ toast(e.message, 5000); $("#fgo").disabled = false; $("#fwait").style.display = "none"; }
+  };
+}
+async function faceApprove(){ try { await api("/face/approve", {method:"POST"}); CFG = null; toast("Done! New videos will use your face"); facePage(); } catch(e){ toast(e.message); } }
+async function faceReset(){ if (!confirm("Stop using your face and go back to the default mascot?")) return;
+  try { await api("/face", {method:"DELETE"}); facePage(); } catch(e){ toast(e.message); } }
+
 /* ---------------- router ---------------- */
 async function route(){
   const h = location.hash.replace(/^#/, "") || "/";
   try { CFG = CFG || await api("/config"); } catch(e){ return; }
   const m = h.match(/^\/job\/([\w-]+)/);
+  if (h.startsWith("/face")) return facePage();
   m ? jobPage(m[1]) : home();
 }
 window.onhashchange = route;

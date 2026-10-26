@@ -65,6 +65,30 @@ def gemini(model, prompt, gen_cfg, extra_parts=None):
     return _post(GEN_URL.format(p=C.PROJECT, m=model), body)
 
 
+def _mime(path):
+    head = Path(path).read_bytes()[:12]
+    if head.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/png"
+
+
+def describe_person(photo_paths):
+    """One-sentence visual description of the person in the photos, for keeping a 3D likeness."""
+    if FAKE:
+        return "a young man with thick wavy black hair swept up, a short full beard, dark brown eyes"
+    parts = [{"inlineData": {"mimeType": _mime(p), "data": base64.b64encode(Path(p).read_bytes()).decode()}}
+             for p in photo_paths]
+    prompt = ("These photos all show the same person. For a 3D character artist who must keep his likeness, describe "
+              "ONLY his visible physical features: face shape, skin tone, hair (style, length, texture, colour), facial "
+              "hair, eyebrows, eyes, nose, build. Do not mention clothes, accessories, background, names or guesses "
+              "about identity. Return ONLY JSON: {\"description\": \"a young man with ...\"} (max 60 words).")
+    resp = gemini(C.TEXT_MODEL_ID, prompt, {"responseMimeType": "application/json", "temperature": 0.2}, parts)
+    raw = "".join(p.get("text", "") for p in resp["candidates"][0]["content"]["parts"] if not p.get("thought"))
+    return json.loads(raw[raw.find("{"): raw.rfind("}") + 1])["description"].strip()
+
+
 def text_json(prompt, temperature=0.9):
     if FAKE:
         return _fake_text(prompt)
@@ -82,7 +106,7 @@ def image(prompt, out_path, refs=None):
     refs = [(n, r) for n, r in (refs or []) if Path(r).exists()]
     if refs:
         for _, r in refs:
-            extra.append({"inlineData": {"mimeType": "image/png",
+            extra.append({"inlineData": {"mimeType": _mime(r),
                                          "data": base64.b64encode(Path(r).read_bytes()).decode()}})
         who = "; ".join(f"reference image {k + 1} is {n}" for k, (n, _) in enumerate(refs))
         prompt = (f"Attached are reference images ({who}). Draw each character with EXACTLY the same face, hair, "

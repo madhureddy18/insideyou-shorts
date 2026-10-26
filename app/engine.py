@@ -85,7 +85,13 @@ def brand_mark_used(store, topic):
 
 
 # ====================================================================== step 1: script
-def _script_prompt(topic, num_shots):
+def hero_face(store):
+    d = store.read_json(C.HERO_DESC_KEY) or {}
+    return d.get("description") or C.HERO_FACE
+
+
+def _script_prompt(topic, num_shots, face=None):
+    face = face or C.HERO_FACE
     return f"""You write viral 3D-animated explainer YouTube Shorts in the style of Zack D. Films.
 Topic: {topic}
 
@@ -101,7 +107,7 @@ Rules:
   Its image uses the SAME framing, camera angle and setting as shot 1, so a replay feels smooth.
 - hook_title: 2-5 punchy words in CAPS shown on screen for the first second (e.g. "YOUR BRAIN DID THIS").
 - Facts must be accurate and mainstream-science; no medical advice, no gore.
-- CAST: the lead is ALWAYS "Hero": {C.HERO_FACE}. His face and hair never change.
+- CAST: the lead is ALWAYS "Hero": {face}. His face and hair never change.
 - hero_outfit: dress Hero REALISTICALLY for this story's situation, like real life - what a real person would
   actually wear there (space -> white astronaut suit; frozen lake -> puffer jacket, beanie, gloves; gym -> workout
   tank and shorts; sleep -> pajamas; beach -> t-shirt and shorts; hospital visit -> casual hoodie; office ->
@@ -163,7 +169,8 @@ def step_script(job: Job):
         topic = random.choice([t for t in C.TOPIC_BANK if t not in used] or C.TOPIC_BANK)
     job.save(stage="scripting", topic=topic)
     job.log(f"Writing script: {topic}")
-    sc = ai.text_json(_script_prompt(topic, st.get("num_shots", 7)))
+    face = hero_face(job.store)
+    sc = ai.text_json(_script_prompt(topic, st.get("num_shots", 7), face))
     job.log("Fact-checking every claim...")
     try:
         changes = _fact_check(sc)
@@ -174,7 +181,7 @@ def step_script(job: Job):
     if C.BRAND_TEXT.lower() not in outfit.lower():
         outfit += f', with "{C.BRAND_TEXT}" printed on the chest'
     sc["hero_outfit"] = outfit
-    cast["Hero"] = C.HERO_FACE + ", wearing " + outfit
+    cast["Hero"] = face + ", wearing " + outfit
     sc["cast"] = [{"name": k, "look": v} for k, v in cast.items()]
     for s in sc["shots"]:
         s["characters"] = [c for c in s.get("characters", []) if c in cast]
@@ -258,7 +265,7 @@ def step_images(job: Job, redo=None):
         face.write_bytes(data)
     else:
         job.log("Creating the mascot's face reference (first video only)...")
-        ai.image(f"Head-and-shoulders portrait of {C.HERO_FACE}, wearing a plain grey t-shirt, friendly neutral "
+        ai.image(f"Head-and-shoulders portrait of {hero_face(job.store)}, wearing a plain grey t-shirt, friendly neutral "
                  f"expression, front view, plain light-grey background. {C.STYLE}", face)
         job.store.upload_file(face, C.HERO_FACE_KEY)
     hero = job.dir / _sheet_name("Hero")

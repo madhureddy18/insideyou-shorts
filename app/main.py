@@ -242,6 +242,88 @@ def hero():
     return Response(data, media_type="image/png", headers={"Cache-Control": "no-cache"})
 
 
+# ------------------------------------------------------------------ My Face (use your own face as the mascot)
+class FaceUpload(BaseModel):
+    photos: list[str]            # base64 JPEG/PNG (data URLs allowed), 1-4 photos
+
+
+def _b64(s):
+    import base64
+    return base64.b64decode(s.split(",", 1)[1] if s.startswith("data:") else s)
+
+
+@app.get("/api/face")
+def face_status():
+    d = store.read_json(C.HERO_DESC_KEY) or {}
+    cand = store.read_json("brand/face_candidate.json") or {}
+    return {"custom": bool(d.get("description")), "description": d.get("description", ""),
+            "has_face": store.read_bytes(C.HERO_FACE_KEY) is not None,
+            "candidate": bool(cand), "candidate_description": cand.get("description", ""),
+            "version": d.get("version", ""), "candidate_version": cand.get("version", "")}
+
+
+@app.post("/api/face/generate")
+def face_generate(body: FaceUpload):
+    from . import ai
+    if not 1 <= len(body.photos) <= 4:
+        raise HTTPException(400, "Upload 1 to 4 photos")
+    tmp = Path(tempfile.mkdtemp())
+    paths = []
+    for k, ph in enumerate(body.photos, 1):
+        data = _b64(ph)
+        if len(data) > 8_000_000:
+            raise HTTPException(400, "Photo too large")
+        p = tmp / f"photo_{k}.jpg"
+        p.write_bytes(data)
+        store.write_bytes(f"brand/face_src/photo_{k}.jpg", data, "image/jpeg")   # private, your bucket only
+        paths.append(p)
+    try:
+        desc = ai.describe_person(paths)
+        out = tmp / "candidate.png"
+        refs = [(f"photo {k} of the real person", p) for k, p in enumerate(paths, 1)]
+        ai.image(f"Turn this real person into the channel's 3D animated mascot. Head-and-shoulders portrait of {desc}. "
+                 f"Keep a strong, recognizable likeness: the same face shape, hairstyle, beard, eyebrows, eyes, nose "
+                 f"and skin tone as in the photos - but as a stylized 3D animated character, not a photo. Wearing a plain "
+                 f"grey t-shirt, friendly neutral expression, front view, plain light-grey background. {C.STYLE}",
+                 out, refs=refs)
+    except Exception as e:
+        raise HTTPException(500, f"Could not create your 3D face: {str(e)[:200]}")
+    store.upload_file(out, "brand/face_candidate.png")
+    store.write_json("brand/face_candidate.json", {"description": desc, "version": engine.now()})
+    return face_status()
+
+
+@app.post("/api/face/approve")
+def face_approve():
+    cand = store.read_json("brand/face_candidate.json")
+    img = store.read_bytes("brand/face_candidate.png")
+    if not cand or not img:
+        raise HTTPException(400, "Create a 3D face first")
+    store.write_bytes(C.HERO_FACE_KEY, img, "image/png")
+    store.write_json(C.HERO_DESC_KEY, {"description": cand["description"], "version": engine.now()})
+    store.delete("brand/face_candidate.png")
+    store.delete("brand/face_candidate.json")
+    return face_status()
+
+
+@app.delete("/api/face")
+def face_reset():
+    """Go back to the default AI mascot (a new default face is drawn on the next video)."""
+    for k in (C.HERO_FACE_KEY, C.HERO_DESC_KEY, "brand/face_candidate.png", "brand/face_candidate.json"):
+        store.delete(k)
+    store.delete_prefix("brand/face_src/")
+    return face_status()
+
+
+@app.get("/api/face/image/{which}")
+def face_image(which: str):
+    key = {"current": C.HERO_FACE_KEY, "candidate": "brand/face_candidate.png"}.get(which)
+    data = store.read_bytes(key) if key else None
+    if not data:
+        raise HTTPException(404)
+    return Response(data, media_type="image/png", headers={"Cache-Control": "no-cache"})
+
+
 # ------------------------------------------------------------------ UI
 @app.get("/")
 def index():

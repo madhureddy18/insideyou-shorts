@@ -13,7 +13,8 @@ RS_BASE = 10                   # script + images + voice
 
 BRAND_TEXT = os.environ.get("BRAND_TEXT", "VERSE FILMS")          # printed inside scenes (shirt, signs, labels)
 WATERMARK_TEXT = os.environ.get("WATERMARK_TEXT", "VERSE FILMS")  # small corner watermark on every video
-HERO_FACE_KEY = "brand/hero_face_v1.png"      # saved once: the mascot's face/hair reference, reused forever
+HERO_FACE_KEY = "brand/hero_face_v1.png"
+HERO_DESC_KEY = "brand/hero_face.json"     # {"description": ...} written when you upload your own face      # saved once: the mascot's face/hair reference, reused forever
 
 # The mascot's permanent look. His OUTFIT is chosen per video to fit the story (like real life).
 HERO_FACE = ("a friendly young man in his mid-20s with short wavy dark-brown hair, light stubble, warm brown "
