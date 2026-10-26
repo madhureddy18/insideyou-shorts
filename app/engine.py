@@ -467,7 +467,7 @@ def step_video(job: Job, redo=None):
     if not job.state.get("script_text"):
         brand_mark_used(job.store, job.state.get("topic", ""))
     job.log("Done! Your Short is ready")
-    job.save(stage="done", clips=clips)
+    job.save(stage="done", clips=clips, final_at=now())
 
 
 # ====================================================================== runner
@@ -490,7 +490,50 @@ def _record_spend(store, jid, u):
     return rs
 
 
+def upload_youtube(store, jid, arg):
+    """arg: "public" | "private" | "unlisted" | "schedule@<RFC3339 time>"."""
+    from . import youtube
+    st = store.read_json(f"jobs/{jid}/state.json") or {}
+    sc = store.read_json(f"jobs/{jid}/script.json") or {}
+    data = store.read_bytes(f"jobs/{jid}/final.mp4")
+    yt = dict(st.get("youtube") or {})
+    try:
+        if not data:
+            raise RuntimeError("No finished video to upload")
+        tmp = Path(tempfile.gettempdir()) / f"yt_{jid}.mp4"
+        tmp.write_bytes(data)
+        publish_at = arg.split("@", 1)[1] if arg.startswith("schedule@") else None
+        privacy = arg if arg in ("public", "private", "unlisted") else "public"
+        tags = list(sc.get("tags") or []) + ["science", "explained", "3d animation", "what if", "shorts"]
+        desc = (f"{sc.get('description', '')}\n\n"
+                + " ".join("#" + t.replace(" ", "") for t in (sc.get("tags") or [])) + " #shorts"
+                + "\n\nMade with AI tools and fact-checked. For curiosity and education - not medical advice.")
+        res = youtube.upload(store, tmp, sc.get("title") or st.get("topic"), desc, tags,
+                             publish_at=publish_at, privacy=privacy)
+        tmp.unlink(missing_ok=True)
+        audited = youtube.cfg(store).get("audited")
+        yt = {"status": "uploaded", "id": res["id"], "url": res["url"], "privacy": res["privacy"],
+              "publish_at": publish_at, "uploaded": now(),
+              "note": "" if audited else "Uploaded as private (YouTube keeps API uploads private until your free "
+                                         "API audit is approved). Open YouTube Studio and set it to Public or Schedule."}
+        print("uploaded to YouTube:", res["url"], flush=True)
+    except Exception as e:
+        traceback.print_exc()
+        yt = {"status": "failed", "error": str(e)[:300], "tried": now()}
+    st = store.read_json(f"jobs/{jid}/state.json") or st
+    st["youtube"] = yt
+    st["updated"] = now()
+    store.write_json(f"jobs/{jid}/state.json", st)
+
+
 def run(store: Store, jid: str, step: str, arg: str = ""):
+    if step == "youtube":
+        return upload_youtube(store, jid, arg)
+    if step == "ytbatch":                     # arg = "jid@time,jid@time" - schedule many uploads
+        for item in [x for x in arg.split(",") if "@" in x]:
+            j, t = item.split("@", 1)
+            upload_youtube(store, j, "schedule@" + t)
+        return
     if step == "batch":                       # arg = comma list of job ids, made one after another
         for k, b in enumerate([x for x in arg.split(",") if x], 1):
             st = store.read_json(f"jobs/{b}/state.json") or {}

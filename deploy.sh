@@ -21,7 +21,7 @@ IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/app:$(date +%Y%m%d-%H%M%S)"
 
 say "Enabling Google APIs (first time takes ~1 min)"
 gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com \
-  storage.googleapis.com aiplatform.googleapis.com iam.googleapis.com texttospeech.googleapis.com --quiet
+  storage.googleapis.com aiplatform.googleapis.com iam.googleapis.com texttospeech.googleapis.com youtube.googleapis.com --quiet
 
 say "Storage bucket for your Shorts"
 gcloud storage buckets describe "gs://${BUCKET}" >/dev/null 2>&1 || \

@@ -134,6 +134,8 @@ def config():
             "rs_per_shot": C.RS_PER_ANIMATED_SHOT, "rs_base": C.RS_BASE,
             "has_hero": store.read_bytes(C.HERO_FACE_KEY) is not None,
             "voices": [{"id": v, "label": l} for v, l in C.VOICES], "default_voice": C.DEFAULT_VOICE,
+            "yt_connected": bool((store.read_json("brand/youtube.json") or {}).get("refresh_token")),
+            "yt_channel": (store.read_json("brand/youtube.json") or {}).get("channel_title", ""),
             "spend": {"total_rs": sp.get("total_rs", 0), "month_rs": sp["months"].get(time.strftime("%Y-%m"), 0),
                       "credits_start_rs": C.CREDITS_START_RS,
                       "left_rs": round(C.CREDITS_START_RS - sp.get("total_rs", 0), 1)}}
@@ -211,7 +213,7 @@ def list_jobs():
         st = store.read_json(f"jobs/{jid}/state.json")
         if st:
             out.append({k: st.get(k) for k in ("id", "created", "updated", "topic", "title", "stage", "status",
-                                                "animate", "images")})
+                                                "animate", "images", "youtube")})
     return out
 
 
@@ -337,6 +339,119 @@ def hero():
     if not data:
         raise HTTPException(404)
     return Response(data, media_type="image/png", headers={"Cache-Control": "no-cache"})
+
+
+# ------------------------------------------------------------------ YouTube (connect + upload, free)
+from fastapi.responses import RedirectResponse
+from . import youtube as YT
+
+
+def _redirect_uri(request: Request):
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    scheme = "https" if RUN_MODE == "cloudrun" else request.url.scheme
+    return f"{scheme}://{host}/api/youtube/callback"
+
+
+@app.get("/api/youtube")
+def yt_status(request: Request):
+    return dict(YT.status(store), redirect_uri=_redirect_uri(request))
+
+
+class YTClient(BaseModel):
+    client_id: str = ""
+    client_secret: str = ""
+    audited: bool | None = None
+
+
+@app.put("/api/youtube/client")
+def yt_client(body: YTClient, request: Request):
+    YT.save_client(store, body.client_id, body.client_secret, body.audited)
+    return yt_status(request)
+
+
+@app.get("/api/youtube/connect")
+def yt_connect(request: Request):
+    if not YT.status(store)["has_client"]:
+        raise HTTPException(400, "Save your OAuth Client ID and secret first")
+    exp = str(int(time.time()) + 900)
+    return RedirectResponse(YT.auth_url(store, _redirect_uri(request), exp + "." + _sign(exp)))
+
+
+@app.get("/api/youtube/callback")
+def yt_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    if error or not code:
+        return RedirectResponse("/#/settings?yt=" + (error or "cancelled"))
+    if not _valid_token(state):
+        return RedirectResponse("/#/settings?yt=expired")
+    try:
+        YT.finish_connect(store, code, _redirect_uri(request))
+    except Exception as e:
+        return RedirectResponse("/#/settings?yt=" + requests.utils.quote(str(e)[:150]))
+    return RedirectResponse("/#/settings?yt=ok")
+
+
+@app.post("/api/youtube/disconnect")
+def yt_disconnect(request: Request):
+    YT.disconnect(store)
+    return yt_status(request)
+
+
+class YTUpload(BaseModel):
+    mode: str = "public"          # public | private | unlisted | schedule
+    at: str = ""                  # RFC3339 time for schedule (e.g. 2026-10-27T18:00:00+05:30)
+
+
+@app.post("/api/jobs/{jid}/youtube")
+def yt_upload(jid: str, body: YTUpload):
+    st = _state(jid)
+    if st.get("stage") != "done":
+        raise HTTPException(400, "Finish the video first")
+    if not YT.status(store)["connected"]:
+        raise HTTPException(400, "Connect YouTube in Settings first")
+    if (st.get("youtube") or {}).get("status") == "uploading":
+        raise HTTPException(409, "Already uploading")
+    if body.mode == "schedule":
+        if not body.at:
+            raise HTTPException(400, "Pick a time")
+        arg = "schedule@" + body.at
+    elif body.mode in ("public", "private", "unlisted"):
+        arg = body.mode
+    else:
+        raise HTTPException(400, "bad mode")
+    _save_state(jid, st, youtube={"status": "uploading", "started": engine.now()})
+    _start_worker(jid, "youtube", arg)
+    return {"ok": True}
+
+
+class YTScheduleAll(BaseModel):
+    time: str = "18:00"           # daily posting time, India time
+    start_date: str = ""          # YYYY-MM-DD, default tomorrow
+
+
+@app.post("/api/youtube/schedule-all")
+def yt_schedule_all(body: YTScheduleAll):
+    """Upload every finished Short that isn't on YouTube yet, one per day at the chosen time (IST)."""
+    import datetime as dt
+    if not YT.status(store)["connected"]:
+        raise HTTPException(400, "Connect YouTube in Settings first")
+    jobs = []
+    for jid in sorted(store.list_dirs("jobs/")):
+        st = store.read_json(f"jobs/{jid}/state.json") or {}
+        if st.get("stage") == "done" and (st.get("youtube") or {}).get("status") not in ("uploaded", "uploading"):
+            jobs.append((jid, st))
+    if not jobs:
+        raise HTTPException(400, "No finished Shorts waiting to be uploaded")
+    ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
+    hh, mm = (int(x) for x in body.time.split(":"))
+    day = (dt.date.fromisoformat(body.start_date) if body.start_date
+           else dt.datetime.now(ist).date() + dt.timedelta(days=1))
+    plan = []
+    for k, (jid, st) in enumerate(jobs):
+        when = dt.datetime.combine(day + dt.timedelta(days=k), dt.time(hh, mm), ist).isoformat()
+        _save_state(jid, st, youtube={"status": "uploading", "started": engine.now(), "planned": when})
+        plan.append(f"{jid}@{when}")
+    _start_worker("YT", "ytbatch", ",".join(plan))
+    return {"count": len(plan), "plan": [p.split("@", 1)[1] for p in plan]}
 
 
 # ------------------------------------------------------------------ settings (email notifications)
