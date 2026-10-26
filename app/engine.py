@@ -111,7 +111,13 @@ Rules:
 - For each shot list exactly which cast names appear in "characters" ([] for pure close-ups/cross-sections
   with no recognizable person). Characters can enter and leave between shots.
 - image_prompt: describe ONE clear visual (subject, camera angle, what is highlighted/glowing, what each
-  listed character is doing). Inside-the-body cross-sections are welcome. No text in images.
+  listed character is doing). Inside-the-body cross-sections are welcome. No captions or random text.
+- BRANDING (like Zack D Films signs his scenes): the brand name is "{C.BRAND_TEXT}". It is already printed on
+  Hero's t-shirt. In addition, in 2-3 shots where it fits naturally, put "{C.BRAND_TEXT}" on a real object in
+  the scene - e.g. a product label, cereal box, medicine bottle, billboard, shop sign, truck side, book cover,
+  phone screen, lab coat badge, helmet, mug. Write it in "brand_on" as a short phrase (e.g. "the label of the
+  water bottle on the table"). Leave "brand_on" empty for cross-sections, X-rays and scenes with no fitting
+  object - never force it. Never put it on skin or floating in the air.
 - SAFETY (the video model blocks these): every person is FULLY CLOTHED in every shot (keep their outfit),
   never show bathing/showering/undressed bodies, no blood/gore, no injuries, no weapons. For water topics show
   hands or a clothed person by water, or a cross-section instead.
@@ -121,7 +127,7 @@ Rules:
 Return ONLY JSON:
 {{"title": "...", "hook_title": "...", "description": "2 lines for YouTube", "tags": ["..."],
   "cast": [{{"name": "Hero", "look": "..."}}, {{"name": "...", "look": "..."}}],
-  "shots": [{{"narration": "...", "characters": ["Hero"], "image_prompt": "...", "motion": "..."}}]}}"""
+  "shots": [{{"narration": "...", "characters": ["Hero"], "image_prompt": "...", "brand_on": "", "motion": "..."}}]}}"""
 
 
 def _fact_check(script):
@@ -193,7 +199,14 @@ def _shot_prompt(sc, s):
     who = " ".join(f"{n}: {cast[n]}." for n in s["characters"])
     lock = (" Every character is fully dressed in EXACTLY the outfit from their reference sheet - "
             "never shirtless, never undressed, never in different clothes.") if who else ""
-    return f"{s['image_prompt']}. {('Characters in this shot - ' + who + lock + ' ') if who else ''}{C.STYLE}"
+    brand = ""
+    if s.get("brand_on"):
+        brand = (f' The text "{C.BRAND_TEXT}" is clearly and correctly spelled on {s["brand_on"]}, '
+                 f'printed naturally like a real logo (correct perspective, not floating).')
+    if "Hero" in s["characters"]:
+        brand += f' Hero\'s t-shirt shows "{C.BRAND_TEXT}" across the chest, spelled correctly.'
+    return (f"{s['image_prompt']}. {('Characters in this shot - ' + who + lock + ' ') if who else ''}"
+            f"{brand} {C.STYLE}")
 
 
 def _refs(job, sc, i):
@@ -230,13 +243,13 @@ def step_images(job: Job, redo=None):
     cast = _cast(sc)
     # mascot reference is shared by every video
     hero = job.dir / _sheet_name("Hero")
-    data = job.store.read_bytes("brand/hero_reference.png")
+    data = job.store.read_bytes(C.HERO_REF_KEY)
     if data:
         hero.write_bytes(data)
     else:
         job.log("Creating the mascot reference (first video only)...")
         ai.image(_sheet_prompt(C.BRAND_CHARACTER), hero)
-        job.store.upload_file(hero, "brand/hero_reference.png")
+        job.store.upload_file(hero, C.HERO_REF_KEY)
     job.put(hero.name)
     needed = {n for s in sc["shots"] for n in s["characters"]} - {"Hero"}
     for n in needed:
@@ -272,7 +285,8 @@ def _video_prompt(s, secs):
     return (f"Animate this exact image into a smooth {secs}-second shot. {s.get('motion', '')} "
             f"Keep the same 3D style, colors, characters, outfits and composition as the image. Continuous fluid "
             f"motion, slow cinematic camera movement, vertical 9:16, 720p. "
-            f"No text, no captions, no on-screen words, no logos, no people talking.")
+            f"Keep any printed brand text ({C.BRAND_TEXT}) exactly as it appears in the image - sharp, readable, "
+            f"not changing. Do not add any other text, captions or logos. No people talking.")
 
 
 def step_video(job: Job):
@@ -342,7 +356,7 @@ def step_video(job: Job):
                       "audio": job.dir / f"voice_{i:02d}.mp3", "words": words[i]})
     work = job.dir / "edit"
     work.mkdir(exist_ok=True)
-    build_short(shots, work, job.dir / "final.mp4", hook_title=sc.get("hook_title", ""))
+    build_short(shots, work, job.dir / "final.mp4", hook_title=sc.get("hook_title", ""), watermark=C.WATERMARK_TEXT)
     job.put("final.mp4")
     upload = (f"{sc['title']} #shorts\n\n{sc.get('description', '')}\n\n"
               + " ".join("#" + t.replace(" ", "") for t in sc.get("tags", [])))

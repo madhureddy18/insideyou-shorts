@@ -77,7 +77,7 @@ def _ts(t):
     h = int(t // 3600); m = int(t % 3600 // 60); s = t % 60
     return f"{h}:{m:02d}:{s:05.2f}"
 
-def _ass(words, font, path, hook_title=""):
+def _ass(words, font, path, hook_title="", watermark="", total=0.0):
     """Word-by-word pop captions: chunks of up to 2 words, active word highlighted yellow."""
     head = f"""[Script Info]
 ScriptType: v4.00+
@@ -88,12 +88,16 @@ WrapStyle: 2
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Cap,{font},92,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,3,2,60,60,560,1
+Style: Mark,{font},34,&H4DFFFFFF,&H4DFFFFFF,&H80000000,&H00000000,-1,0,0,0,100,100,3,0,1,2,0,9,50,60,150,1
 Style: Hook,{font},118,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,2,0,1,9,5,8,70,70,300,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines = []
+    if watermark and total > 0:            # small semi-transparent corner mark for the whole video
+        wm = watermark.upper().replace("{", "").replace("}", "")
+        lines.append(f"Dialogue: 2,0:00:00.00,{_ts(total)},Mark,,0,0,0,,{wm}")
     if hook_title:
         t = hook_title.upper().replace("{", "").replace("}", "")
         ws = t.split()
@@ -140,7 +144,7 @@ def _make_sfx(workdir, total):
                  f"afade=t=out:st={max(0, d - 2.5):.2f}:d=2.5,volume=0.6", "-ac", "2", str(pad)])
     return whoosh, pad
 
-def build_short(shots, workdir, out_path, music=None, hook_title=""):
+def build_short(shots, workdir, out_path, music=None, hook_title="", watermark=""):
     """shots: list of {image, video?, audio, words:[(start,end,text) relative to its own audio]}"""
     workdir = Path(workdir)
     clips, all_words, cuts, t0 = [], [], [], 0.0
@@ -164,7 +168,7 @@ def build_short(shots, workdir, out_path, music=None, hook_title=""):
 
     fdir, font = _font(workdir)
     ass = workdir / "captions.ass"
-    _ass(all_words, font, ass, hook_title)
+    _ass(all_words, font, ass, hook_title, watermark, t0)
     ass_arg = str(ass).replace("\\", "/").replace(":", r"\:")
     fd_arg = str(fdir).replace("\\", "/").replace(":", r"\:")
 

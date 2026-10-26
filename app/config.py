@@ -11,9 +11,15 @@ VIDEO_WORKERS = int(os.environ.get("VIDEO_WORKERS", "3"))
 RS_PER_ANIMATED_SHOT = 55      # rough cost of one ~6s Omni clip at 720p
 RS_BASE = 10                   # script + images + voice
 
-BRAND_CHARACTER = 'a friendly young man in his mid-20s with short wavy dark-brown hair, light stubble, warm brown eyes, wearing a plain mustard-yellow crew-neck t-shirt and dark jeans'
+BRAND_TEXT = os.environ.get("BRAND_TEXT", "VERSE FILMS")          # printed inside scenes (shirt, signs, labels)
+WATERMARK_TEXT = os.environ.get("WATERMARK_TEXT", "VERSE FILMS")  # small corner watermark on every video
+HERO_REF_KEY = "brand/hero_reference_v2.png"                          # v2 = shirt with the brand print
 
-STYLE = 'Clean stylized 3D render, smooth glossy materials, soft studio lighting, subtle rim light, shallow depth of field, cinematic medical-explainer look, simple uncluttered background, vibrant but realistic colors, high detail, vertical 9:16 composition, subject centered, no text, no letters, no watermark, any person is fully clothed, family-friendly'
+BRAND_CHARACTER = ('a friendly young man in his mid-20s with short wavy dark-brown hair, light stubble, warm brown eyes, '
+                   'wearing a mustard-yellow crew-neck t-shirt with the words "' + BRAND_TEXT + '" printed in small '
+                   'clean black letters across the chest, and dark jeans')
+
+STYLE = 'Clean stylized 3D render, smooth glossy materials, soft studio lighting, subtle rim light, shallow depth of field, cinematic medical-explainer look, simple uncluttered background, vibrant but realistic colors, high detail, vertical 9:16 composition, subject centered, no captions or random text (only the brand name where it is specified), no watermark, any person is fully clothed, family-friendly'
 
 TOPIC_BANK = [
     'What happens inside your body when you hold in a sneeze',
