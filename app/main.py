@@ -303,6 +303,61 @@ def cancel(jid: str):
     return {"ok": True, "stage": stage}
 
 
+class SeoEdit(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    tags: list[str] | None = None
+    hashtags: list[str] | None = None
+    instagram_caption: str | None = None
+
+
+def _save_seo(jid, sc):
+    from . import seo as S
+    seo = sc["seo"]
+    seo["query_check"] = S.query_check(seo.get("title", ""), seo.get("description", ""), seo.get("queries") or [])
+    store.write_json(f"jobs/{jid}/script.json", sc)
+    store.write_bytes(f"jobs/{jid}/upload.txt", S.upload_text(seo).encode(), "text/plain")
+    return seo
+
+
+@app.post("/api/jobs/{jid}/seo")
+def seo_regen(jid: str):
+    """Write a fresh SEO pack (one quick Gemini call, about Rs 0.5)."""
+    from . import ai
+    sc = store.read_json(f"jobs/{jid}/script.json")
+    if not sc:
+        raise HTTPException(404, "No script")
+    ai.usage_take()
+    try:
+        sc["seo"] = engine.make_seo(sc)
+    except Exception as e:
+        raise HTTPException(500, f"SEO failed: {str(e)[:200]}")
+    finally:
+        engine._record_spend(store, jid, ai.usage_take())
+    return _save_seo(jid, sc)
+
+
+@app.put("/api/jobs/{jid}/seo")
+def seo_edit(jid: str, body: SeoEdit):
+    from . import seo as S
+    sc = store.read_json(f"jobs/{jid}/script.json")
+    if not sc or not sc.get("seo"):
+        raise HTTPException(404, "No SEO yet")
+    seo = sc["seo"]
+    if body.title is not None:
+        seo["title"] = body.title.strip()[:100]
+        seo["title_check"] = S.check_title(seo["title"], sc.get("hook_title"))
+    if body.description is not None:
+        seo["description"] = body.description.strip()[:4500]
+    if body.tags is not None:
+        seo["tags"] = [t.strip() for t in body.tags if t.strip()][:15]
+    if body.hashtags is not None:
+        seo["hashtags"] = [("#" + h.strip().lstrip("#")) for h in body.hashtags if h.strip()][:5]
+    if body.instagram_caption is not None:
+        seo["instagram_caption"] = body.instagram_caption.strip()
+    return _save_seo(jid, sc)
+
+
 @app.delete("/api/jobs/{jid}")
 def delete_job(jid: str):
     st = _state(jid)

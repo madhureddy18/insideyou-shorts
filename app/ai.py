@@ -337,6 +337,15 @@ def _edge_voice(text, mp3_path, edge_voice):
 
 # ---------------------------------------------------------------- fake mode (local tests, no credits)
 def _fake_text(prompt):
+    if prompt.startswith("You are a YouTube Shorts + Instagram Reels SEO"):
+        return {"queries": ["why do knuckles crack", "is cracking knuckles bad", "knuckle cracking bubble"],
+                "titles": ["Why Do Your Knuckles Crack? The 20-Minute Bubble", "INSANE Knuckle Secret Nobody Tells You",
+                           "Knuckle cracking: what actually makes the pop", "The pop in your knuckles is a bubble",
+                           "Is Cracking Your Knuckles Bad? One Doctor Tested It For 60 Years"],
+                "description": "Why do knuckles crack? It's a gas bubble forming in your joint fluid.\nIs cracking knuckles bad for you? One doctor tested it for 60 years.\n\nA 3D look inside your finger joint.",
+                "hashtags": ["#shorts", "#science", "#humanbody", "#knuckles"],
+                "tags": ["knuckle cracking", "cracking knuckles", "why knuckles pop", "joint popping"],
+                "instagram_caption": "That pop isn't your bones. 🫧\nTag someone who cracks their knuckles all day.\n#science #humanbody #3d"}
     if "NARRATION:" in prompt and prompt.startswith("You are a strict"):
         return {"changes": ["(fake) warning: shot 2 sounds exaggerated"]}
     if prompt.startswith("You turn a creator's"):

@@ -24,3 +24,6 @@ bash deploy.sh
 Re-run `git pull && bash deploy.sh` to update.
 
 Local test without spending credits: `FAKE_AI=1 APP_PASSWORD=test uvicorn app.main:app --port 8080`
+
+## Credits
+Title-scoring rules in `app/seo.py` are adapted from [youtube-agent-skill](https://github.com/Jakeschincariol/youtube-agent-skill) by Jake Schincariol (MIT License).

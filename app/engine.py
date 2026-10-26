@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import ai
+from . import seo as seo_mod
 from . import config as C
 from .assemble import build_short
 from .store import Store
@@ -460,8 +461,15 @@ def step_video(job: Job, redo=None):
     work.mkdir(exist_ok=True)
     build_short(shots, work, job.dir / "final.mp4", hook_title=sc.get("hook_title", ""), watermark=C.WATERMARK_TEXT)
     job.put("final.mp4")
-    upload = (f"{sc['title']} #shorts\n\n{sc.get('description', '')}\n\n"
-              + " ".join("#" + t.replace(" ", "") for t in sc.get("tags", [])))
+    job.log("Writing SEO: target searches, 10 scored titles, description, tags...")
+    try:
+        sc["seo"] = make_seo(sc)
+        job.save_script(sc)
+        upload = seo_mod.upload_text(sc["seo"])
+    except Exception as e:
+        job.log(f"SEO skipped: {str(e)[:120]}")
+        upload = (f"{sc['title']} #shorts\n\n{sc.get('description', '')}\n\n"
+                  + " ".join("#" + t.replace(" ", "") for t in sc.get("tags", [])))
     (job.dir / "upload.txt").write_text(upload)
     job.put("upload.txt")
     if not job.state.get("script_text"):
@@ -490,6 +498,10 @@ def _record_spend(store, jid, u):
     return rs
 
 
+def make_seo(sc):
+    return seo_mod.build(ai.text_json(seo_mod.seo_prompt(sc), temperature=0.7), sc)
+
+
 def upload_youtube(store, jid, arg):
     """arg: "public" | "private" | "unlisted" | "schedule@<RFC3339 time>"."""
     from . import youtube
@@ -504,12 +516,16 @@ def upload_youtube(store, jid, arg):
         tmp.write_bytes(data)
         publish_at = arg.split("@", 1)[1] if arg.startswith("schedule@") else None
         privacy = arg if arg in ("public", "private", "unlisted") else "public"
-        tags = list(sc.get("tags") or []) + ["science", "explained", "3d animation", "what if", "shorts"]
-        desc = (f"{sc.get('description', '')}\n\n"
-                + " ".join("#" + t.replace(" ", "") for t in (sc.get("tags") or [])) + " #shorts"
-                + "\n\nMade with AI tools and fact-checked. For curiosity and education - not medical advice.")
-        res = youtube.upload(store, tmp, sc.get("title") or st.get("topic"), desc, tags,
-                             publish_at=publish_at, privacy=privacy)
+        seo = sc.get("seo")
+        if seo:
+            title, desc, tags = seo.get("title"), seo_mod.full_description(seo), seo.get("tags") or []
+        else:
+            title = sc.get("title") or st.get("topic")
+            tags = list(sc.get("tags") or []) + ["science", "explained", "3d animation", "what if", "shorts"]
+            desc = (f"{sc.get('description', '')}\n\n"
+                    + " ".join("#" + t.replace(" ", "") for t in (sc.get("tags") or [])) + " #shorts"
+                    + "\n\nMade with AI tools and fact-checked. For curiosity and education - not medical advice.")
+        res = youtube.upload(store, tmp, title, desc, tags, publish_at=publish_at, privacy=privacy)
         tmp.unlink(missing_ok=True)
         audited = youtube.cfg(store).get("audited")
         yt = {"status": "uploaded", "id": res["id"], "url": res["url"], "privacy": res["privacy"],

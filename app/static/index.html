@@ -251,6 +251,7 @@ async function jobPage(id){
     const st = d.state, key = st.stage+"|"+st.updated+"|"+JSON.stringify(st.youtube||{});
     if (key === lastKey) return;
     const v = document.querySelector("video"); if (v && !v.paused) return;   // don't interrupt playback
+    if (document.activeElement && /^seo_/.test(document.activeElement.id || "")) return;  // don't wipe SEO edits
     lastKey = key;
     // keep typing in progress safe: don't re-render the script editor while user edits
     if (st.stage==="script_ready" && document.activeElement && document.activeElement.closest && document.activeElement.closest("#editor")) return;
@@ -327,13 +328,14 @@ function render(d){
       <button class="primary" ${missing?"disabled":""} onclick="startVideo('${id}', ${c})">${st.animate==="none"?"Make video":"Animate"} · ≈ ₹${c}</button></div></div>`;
   }
   else if (st.stage==="done") {
+    _uploadText = d.upload || "";
     const lines = (d.upload||"").split("\n");
     html += `<div class="card"><video controls playsinline preload="metadata" poster="${file(id,"shot_01.png",st.final_at||st.updated)}" src="${file(id,"final.mp4",st.final_at||st.updated)}"></video>
       <div class="row" style="margin-top:14px">
         <a href="${file(id,"final.mp4","dl")}" download style="flex:1"><button class="primary" style="width:100%">Download video</button></a>
-        <button class="ghost" style="flex:1" onclick="copyText('upload')">Copy upload text</button></div>
+        <button class="ghost" style="flex:1" onclick="copyUpload()">Copy upload text</button></div>
       ${ytCard(st)}
-      <label class="lbl">Upload text</label><div class="copybox" id="upload">${esc(d.upload)}</div>
+      ${sc && sc.seo ? seoCard(st, sc.seo) : `<label class="lbl">Upload text</label><div class="copybox" id="upload">${esc(d.upload)}</div>`}
       <div class="small muted" style="margin-top:10px">Tip: when uploading, tick YouTube's "altered or synthetic content" box and Instagram's "AI info" label.</div></div>
       ${sc ? `<div class="card"><h3>Fix a shot</h3><div class="small muted" style="margin-bottom:10px">Not happy with one animation? Redo just that clip - the rest stays the same.</div>
         <div class="grid">${sc.shots.map((s,i)=>{ const k=i+1, v=(st.clips||{})[k];
@@ -346,7 +348,7 @@ function render(d){
   }
   app.innerHTML = html;
   const lg = $("#logs"); if (lg) lg.scrollTop = lg.scrollHeight;
-  bindTiles();
+  bindTiles(); bindSeo();
 }
 
 function imagesGrid(st, sc, interactive){
@@ -384,6 +386,51 @@ async function saveScript(id){
 async function approveScript(id){ try { await saveScript(id); step(id, "images"); } catch(e){ toast(e.message); } }
 function regenScript(id){ if (confirm("Write a completely new script for this topic?")) step(id, "script"); }
 function redo(id){ if (selected.size) step(id, "images", [...selected].sort((a,b)=>a-b)); }
+function seoCard(st, s){
+  const id = st.id, qc = s.query_check || [];
+  return `<div class="card" style="margin:14px 0 0;background:var(--bg)"><div class="row"><h3>🔎 SEO</h3><span class="spacer"></span>
+      <button class="ghost" style="padding:7px 10px" onclick="seoRegen('${id}')">✨ New SEO</button></div>
+    <label class="lbl">Searches this video should win</label>
+    <div class="row">${qc.map(q=>`<span class="chip ${q.ok?"ok":"bad"}" title="${q.ok?"title + description cover it":"missing: "+esc(q.missing.join(", "))}">${q.ok?"✓":"✗"} ${esc(q.query)}</span>`).join("")}</div>
+    <label class="lbl">Title (best scored first - tap to use)</label>
+    ${(s.titles||[]).slice(0,3).map(t=>`<label class="shot" style="display:block;cursor:pointer;margin-bottom:6px;${t.title===s.title?"border-color:var(--accent)":""}">
+        <input type="radio" name="seot" value="${esc(t.title)}" ${t.title===s.title?"checked":""} style="width:auto;margin-right:6px">
+        <b>${esc(t.title)}</b> <span class="chip ${t.score>=85?"ok":t.score>=65?"wait":"bad"}">${t.score}</span>
+        ${t.issues.length?`<div class="small muted" style="margin-top:4px">⚠ ${esc(t.issues[0])}</div>`:""}</label>`).join("")}
+    <input id="seo_title" value="${esc(s.title)}" maxlength="100">
+    <div class="small muted" id="seo_tlen">${s.title.length}/60 characters</div>
+    <label class="lbl">Description (first 2 lines = search snippet)</label>
+    <textarea id="seo_desc" rows="5">${esc(s.description)}</textarea>
+    <label class="lbl">Hashtags (max 5, first 3 show above the title)</label>
+    <input id="seo_hash" value="${esc((s.hashtags||[]).join(" "))}">
+    <label class="lbl">Tags (comma separated, max 15)</label>
+    <input id="seo_tags" value="${esc((s.tags||[]).join(", "))}">
+    <label class="lbl">Instagram caption</label>
+    <textarea id="seo_ig" rows="4">${esc(s.instagram_caption||"")}</textarea>
+    <div class="row" style="margin-top:12px"><button class="ghost" style="flex:1" onclick="copyIG()">Copy IG caption</button>
+      <button class="primary" style="flex:1" onclick="seoSave('${id}')">Save SEO</button></div>
+    <div class="small muted" style="margin-top:8px">YouTube uploads from this app use this title, description, hashtags and tags.</div></div>`;
+}
+function bindSeo(){
+  document.querySelectorAll("input[name=seot]").forEach(r => r.onchange = () => { $("#seo_title").value = r.value; $("#seo_title").oninput(); });
+  const t = $("#seo_title"); if (t) t.oninput = () => { const n=t.value.length; $("#seo_tlen").textContent = `${n}/60 characters${n>60?" - desktop search will cut it":""}`; };
+}
+async function seoSave(id){
+  try { await api(`/jobs/${id}/seo`, {method:"PUT", body:{title:$("#seo_title").value, description:$("#seo_desc").value,
+      hashtags:$("#seo_hash").value.split(/\s+/).filter(Boolean), tags:$("#seo_tags").value.split(",").map(x=>x.trim()).filter(Boolean),
+      instagram_caption:$("#seo_ig").value}}); toast("SEO saved"); }
+  catch(e){ toast(e.message); }
+}
+async function seoRegen(id){
+  if (!confirm("Write a fresh SEO pack? (about ₹0.5)")) return;
+  toast("Writing SEO… about 15 seconds", 15000);
+  try { await api(`/jobs/${id}/seo`, {method:"POST"}); toast("New SEO ready"); location.reload(); } catch(e){ toast(e.message); }
+}
+let _uploadText = "";
+function copyUpload(){ navigator.clipboard.writeText(_uploadText).then(()=>toast("Copied!")); }
+function copyIG(){
+  const txt = $("#seo_ig").value; navigator.clipboard.writeText(txt).then(()=>toast("Instagram caption copied"));
+}
 function ytCard(st){
   const y = st.youtube || {}, id = st.id;
   if (y.status === "uploading") return `<div class="row" style="margin-top:14px"><div class="spin"></div><span>Uploading to YouTube…${y.planned?` (scheduled for ${esc(new Date(y.planned).toLocaleString())})`:""}</span></div>`;
