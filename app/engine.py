@@ -101,9 +101,14 @@ Rules:
   Its image uses the SAME framing, camera angle and setting as shot 1, so a replay feels smooth.
 - hook_title: 2-5 punchy words in CAPS shown on screen for the first second (e.g. "YOUR BRAIN DID THIS").
 - Facts must be accurate and mainstream-science; no medical advice, no gore.
-- CAST: the lead is ALWAYS "Hero": {C.BRAND_CHARACTER}. Hero ALWAYS wears his exact outfit - never shirtless,
-  never in a hospital gown, never changes clothes. For scans/X-ray/inside-the-body shots, show a transparent
-  or cross-section view of his body WITH his t-shirt still visible, or show only the organ.
+- CAST: the lead is ALWAYS "Hero": {C.HERO_FACE}. His face and hair never change.
+- hero_outfit: dress Hero REALISTICALLY for this story's situation, like real life - what a real person would
+  actually wear there (space -> white astronaut suit; frozen lake -> puffer jacket, beanie, gloves; gym -> workout
+  tank and shorts; sleep -> pajamas; beach -> t-shirt and shorts; hospital visit -> casual hoodie; office ->
+  shirt and chinos; rain -> raincoat). Describe it specifically with colors, and include where "{C.BRAND_TEXT}"
+  is printed on it (chest print, jacket patch, sleeve, helmet badge). He wears this SAME outfit in every shot of
+  this video. Never shirtless, never in a hospital gown, never undressed. For scans/X-ray/inside-the-body shots,
+  show a transparent or cross-section view of his body WITH his outfit still visible, or show only the organ.
   Add other characters ONLY when the story needs them (a doctor, a friend, a lifeguard, a kid, an astronaut,
   a crowd...). Use as many or as few as the story needs - often just Hero. Give every extra character a short
   unique name and a fixed, very specific look (age, gender, hair, skin tone, outfit with colors) so they can be
@@ -113,7 +118,7 @@ Rules:
 - image_prompt: describe ONE clear visual (subject, camera angle, what is highlighted/glowing, what each
   listed character is doing). Inside-the-body cross-sections are welcome. No captions or random text.
 - BRANDING (like Zack D Films signs his scenes): the brand name is "{C.BRAND_TEXT}". It is already printed on
-  Hero's t-shirt. In addition, in 2-3 shots where it fits naturally, put "{C.BRAND_TEXT}" on a real object in
+  Hero's outfit. In addition, in 2-3 shots where it fits naturally, put "{C.BRAND_TEXT}" on a real object in
   the scene - e.g. a product label, cereal box, medicine bottle, billboard, shop sign, truck side, book cover,
   phone screen, lab coat badge, helmet, mug. Write it in "brand_on" as a short phrase (e.g. "the label of the
   water bottle on the table"). Leave "brand_on" empty for cross-sections, X-rays and scenes with no fitting
@@ -126,6 +131,7 @@ Rules:
 
 Return ONLY JSON:
 {{"title": "...", "hook_title": "...", "description": "2 lines for YouTube", "tags": ["..."],
+  "hero_outfit": "...",
   "cast": [{{"name": "Hero", "look": "..."}}, {{"name": "...", "look": "..."}}],
   "shots": [{{"narration": "...", "characters": ["Hero"], "image_prompt": "...", "brand_on": "", "motion": "..."}}]}}"""
 
@@ -164,7 +170,11 @@ def step_script(job: Job):
     except Exception as e:
         changes = [f"fact-check skipped: {str(e)[:100]}"]
     cast = {c["name"]: c["look"] for c in sc.get("cast", []) if c.get("name")}
-    cast["Hero"] = C.BRAND_CHARACTER
+    outfit = (sc.get("hero_outfit") or "").strip() or C.DEFAULT_OUTFIT
+    if C.BRAND_TEXT.lower() not in outfit.lower():
+        outfit += f', with "{C.BRAND_TEXT}" printed on the chest'
+    sc["hero_outfit"] = outfit
+    cast["Hero"] = C.HERO_FACE + ", wearing " + outfit
     sc["cast"] = [{"name": k, "look": v} for k, v in cast.items()]
     for s in sc["shots"]:
         s["characters"] = [c for c in s.get("characters", []) if c in cast]
@@ -204,7 +214,7 @@ def _shot_prompt(sc, s):
         brand = (f' The text "{C.BRAND_TEXT}" is clearly and correctly spelled on {s["brand_on"]}, '
                  f'printed naturally like a real logo (correct perspective, not floating).')
     if "Hero" in s["characters"]:
-        brand += f' Hero\'s t-shirt shows "{C.BRAND_TEXT}" across the chest, spelled correctly.'
+        brand += f' The "{C.BRAND_TEXT}" print on Hero\'s outfit is visible and spelled correctly.'
     return (f"{s['image_prompt']}. {('Characters in this shot - ' + who + lock + ' ') if who else ''}"
             f"{brand} {C.STYLE}")
 
@@ -241,16 +251,23 @@ def step_images(job: Job, redo=None):
     sc = job.script()
     job.save(stage="imaging")
     cast = _cast(sc)
-    # mascot reference is shared by every video
-    hero = job.dir / _sheet_name("Hero")
-    data = job.store.read_bytes(C.HERO_REF_KEY)
+    # the mascot's FACE is saved once and reused forever; his outfit sheet is drawn fresh for each video
+    face = job.dir / "hero_face.png"
+    data = job.store.read_bytes(C.HERO_FACE_KEY)
     if data:
-        hero.write_bytes(data)
+        face.write_bytes(data)
     else:
-        job.log("Creating the mascot reference (first video only)...")
-        ai.image(_sheet_prompt(C.BRAND_CHARACTER), hero)
-        job.store.upload_file(hero, C.HERO_REF_KEY)
-    job.put(hero.name)
+        job.log("Creating the mascot's face reference (first video only)...")
+        ai.image(f"Head-and-shoulders portrait of {C.HERO_FACE}, wearing a plain grey t-shirt, friendly neutral "
+                 f"expression, front view, plain light-grey background. {C.STYLE}", face)
+        job.store.upload_file(face, C.HERO_FACE_KEY)
+    hero = job.dir / _sheet_name("Hero")
+    if not _valid(hero):
+        job.log(f"Dressing the mascot for this story: {sc.get('hero_outfit', '')[:80]}")
+        ai.image(_sheet_prompt(cast["Hero"]), hero,
+                 refs=[("Hero's FACE and HAIR - keep them identical, but IGNORE these clothes and use the new outfit",
+                        face)])
+        job.put(hero.name)
     needed = {n for s in sc["shots"] for n in s["characters"]} - {"Hero"}
     for n in needed:
         p = job.dir / _sheet_name(n)

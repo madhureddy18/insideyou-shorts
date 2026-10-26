@@ -113,7 +113,7 @@ def config():
     used = engine.brand_used(store)
     return {"topics": [{"topic": t, "used": t in used} for t in C.TOPIC_BANK],
             "rs_per_shot": C.RS_PER_ANIMATED_SHOT, "rs_base": C.RS_BASE,
-            "has_hero": store.read_bytes(C.HERO_REF_KEY) is not None}
+            "has_hero": store.read_bytes(C.HERO_FACE_KEY) is not None}
 
 
 class NewJob(BaseModel):
@@ -236,7 +236,7 @@ def file(jid: str, name: str, v: str = ""):
 
 @app.get("/api/brand/hero")
 def hero():
-    data = store.read_bytes(C.HERO_REF_KEY)
+    data = store.read_bytes(C.HERO_FACE_KEY)
     if not data:
         raise HTTPException(404)
     return Response(data, media_type="image/png", headers={"Cache-Control": "no-cache"})

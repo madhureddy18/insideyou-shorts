@@ -13,11 +13,13 @@ RS_BASE = 10                   # script + images + voice
 
 BRAND_TEXT = os.environ.get("BRAND_TEXT", "VERSE FILMS")          # printed inside scenes (shirt, signs, labels)
 WATERMARK_TEXT = os.environ.get("WATERMARK_TEXT", "VERSE FILMS")  # small corner watermark on every video
-HERO_REF_KEY = "brand/hero_reference_v2.png"                          # v2 = shirt with the brand print
+HERO_FACE_KEY = "brand/hero_face_v1.png"      # saved once: the mascot's face/hair reference, reused forever
 
-BRAND_CHARACTER = ('a friendly young man in his mid-20s with short wavy dark-brown hair, light stubble, warm brown eyes, '
-                   'wearing a mustard-yellow crew-neck t-shirt with the words "' + BRAND_TEXT + '" printed in small '
-                   'clean black letters across the chest, and dark jeans')
+# The mascot's permanent look. His OUTFIT is chosen per video to fit the story (like real life).
+HERO_FACE = ("a friendly young man in his mid-20s with short wavy dark-brown hair, light stubble, warm brown "
+             "eyes, slim athletic build")
+DEFAULT_OUTFIT = f'a mustard-yellow crew-neck t-shirt with "{BRAND_TEXT}" printed small across the chest, and dark jeans'
+BRAND_CHARACTER = HERO_FACE + ", wearing " + DEFAULT_OUTFIT
 
 STYLE = 'Clean stylized 3D render, smooth glossy materials, soft studio lighting, subtle rim light, shallow depth of field, cinematic medical-explainer look, simple uncluttered background, vibrant but realistic colors, high detail, vertical 9:16 composition, subject centered, no captions or random text (only the brand name where it is specified), no watermark, any person is fully clothed, family-friendly'
 
