@@ -134,6 +134,8 @@ def config():
             "rs_per_shot": C.RS_PER_ANIMATED_SHOT, "rs_base": C.RS_BASE,
             "has_hero": store.read_bytes(C.HERO_FACE_KEY) is not None,
             "voices": [{"id": v, "label": l} for v, l in C.VOICES], "default_voice": C.DEFAULT_VOICE,
+            "looks": [{"id": k, "label": v["label"], "shots": v["shots"]} for k, v in C.LOOKS.items()],
+            "default_look": C.DEFAULT_LOOK,
             "yt_connected": bool((store.read_json("brand/youtube.json") or {}).get("refresh_token")),
             "yt_channel": (store.read_json("brand/youtube.json") or {}).get("channel_title", ""),
             "spend": {"total_rs": sp.get("total_rs", 0), "month_rs": sp["months"].get(time.strftime("%Y-%m"), 0),
@@ -145,6 +147,7 @@ class NewJob(BaseModel):
     topic: str = ""
     script_text: str = ""
     voice: str = ""
+    look: str = ""
     animate: str = "all"
     num_shots: int = 7
     auto: bool = False
@@ -161,13 +164,17 @@ def create(body: NewJob):
         raise HTTPException(400, "Your script is too long for a Short (max ~600 words)")
     jid = engine.new_job_id()
     st = {"id": jid, "created": engine.now(), "topic": body.topic.strip(), "script_text": script_text,
-          "animate": body.animate, "voice": _voice(body.voice),
-          "num_shots": max(4, min(9, body.num_shots)), "auto": body.auto, "stage": "queued",
+          "animate": body.animate, "voice": _voice(body.voice), "look": _look(body.look),
+          "num_shots": max(4, min(12, body.num_shots)), "auto": body.auto, "stage": "queued",
           "status": "Starting...", "logs": [], "clips": {}, "images": [],
           "estimate_rs": engine.estimate_rs(body.num_shots, body.animate)}
     _save_state(jid, st)
     _trigger(jid, "auto" if body.auto else "script", st)
     return st
+
+
+def _look(v):
+    return v if v in C.LOOKS else C.DEFAULT_LOOK
 
 
 def _voice(v):
@@ -177,8 +184,9 @@ def _voice(v):
 class BatchReq(BaseModel):
     count: int = 3
     animate: str = "all"
-    num_shots: int = 7
+    num_shots: int = 10
     voice: str = ""
+    look: str = ""
 
 
 @app.post("/api/batch")
@@ -196,7 +204,7 @@ def batch(body: BatchReq):
     for k, t in enumerate(topics, 1):
         jid = engine.new_job_id() + str(k)
         st = {"id": jid, "created": engine.now(), "topic": t, "script_text": "", "animate": body.animate,
-              "voice": _voice(body.voice), "num_shots": max(4, min(9, body.num_shots)), "auto": True,
+              "voice": _voice(body.voice), "look": _look(body.look), "num_shots": max(4, min(12, body.num_shots)), "auto": True,
               "batch": True, "stage": "waiting", "status": f"Waiting in batch ({k} of {len(topics)})", "logs": [],
               "clips": {}, "images": [], "run_id": secrets.token_hex(6),
               "estimate_rs": engine.estimate_rs(body.num_shots, body.animate)}

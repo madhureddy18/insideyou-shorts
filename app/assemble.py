@@ -77,7 +77,7 @@ def _ts(t):
     h = int(t // 3600); m = int(t % 3600 // 60); s = t % 60
     return f"{h}:{m:02d}:{s:05.2f}"
 
-def _ass(words, font, path, hook_title="", watermark="", total=0.0):
+def _ass(words, font, path, hook_title="", watermark="", total=0.0, captions="pop"):
     """Word-by-word pop captions: chunks of up to 2 words, active word highlighted yellow."""
     head = f"""[Script Info]
 ScriptType: v4.00+
@@ -88,6 +88,7 @@ WrapStyle: 2
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Cap,{font},92,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,3,2,60,60,560,1
+Style: Clean,{font},66,&H00FFFFFF,&H00FFFFFF,&H00202020,&H64000000,-1,0,0,0,100,100,0,0,1,4,1.5,2,80,80,520,1
 Style: Mark,{font},34,&H4DFFFFFF,&H4DFFFFFF,&H80000000,&H00000000,-1,0,0,0,100,100,3,0,1,2,0,9,50,60,150,1
 Style: Hook,{font},118,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,2,0,1,9,5,8,70,70,300,1
 
@@ -112,12 +113,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     chunks, cur = [], []
     for w in words:
         cur.append(w)
-        if len(cur) == 2 or w[2].rstrip().endswith((".", ",", "?", "!")):
+        if len(cur) == (3 if captions == "clean" else 2) or w[2].rstrip().endswith((".", ",", "?", "!")):
             chunks.append(cur); cur = []
     if cur:
         chunks.append(cur)
     for ci, ch in enumerate(chunks):
         nxt = chunks[ci + 1][0][0] if ci + 1 < len(chunks) else ch[-1][1] + 0.4
+        if captions == "clean":            # calm subtitles: one phrase at a time, sentence case, no pop
+            txt = " ".join(t.replace("{", "").replace("}", "") for _, _, t in ch).rstrip(",")
+            lines.append(f"Dialogue: 0,{_ts(ch[0][0])},{_ts(max(nxt, ch[0][0] + 0.3))},Clean,,0,0,0,,{txt}")
+            continue
         for wi, (s, e, _) in enumerate(ch):
             end = ch[wi + 1][0] if wi + 1 < len(ch) else nxt
             parts = []
@@ -144,7 +149,7 @@ def _make_sfx(workdir, total):
                  f"afade=t=out:st={max(0, d - 2.5):.2f}:d=2.5,volume=0.6", "-ac", "2", str(pad)])
     return whoosh, pad
 
-def build_short(shots, workdir, out_path, music=None, hook_title="", watermark=""):
+def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="", captions="pop"):
     """shots: list of {image, video?, audio, words:[(start,end,text) relative to its own audio]}"""
     workdir = Path(workdir)
     clips, all_words, cuts, t0 = [], [], [], 0.0
@@ -168,7 +173,7 @@ def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="
 
     fdir, font = _font(workdir)
     ass = workdir / "captions.ass"
-    _ass(all_words, font, ass, hook_title, watermark, t0)
+    _ass(all_words, font, ass, hook_title, watermark, t0, captions)
     ass_arg = str(ass).replace("\\", "/").replace(":", r"\:")
     fd_arg = str(fdir).replace("\\", "/").replace(":", r"\:")
 

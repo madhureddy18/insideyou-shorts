@@ -103,9 +103,36 @@ def hero_face(store):
     return d.get("description") or C.HERO_FACE
 
 
-def _script_prompt(topic, num_shots, face=None):
+BRIGHT_RULES = f"""- VISUAL STYLE: a bright, clean, toy-like 3D world - glossy plastic, clay and chrome materials, saturated
+  colors, bright sky-blue or pastel studio backdrops, high-key soft light. Show invisible things (heat,
+  magnetism, electricity, sound waves, nerve signals, pressure) as glowing neon lines, rings or particles.
+- CAMERA: every shot is ONE continuous camera move - extreme macro close-ups, slow push-ins, orbits, or flying
+  THROUGH things (into a joint, inside a device, between particles). Shallow depth of field. Say the move in
+  "motion".
+- PEOPLE: the objects and the process are the stars. Show mainly realistic HANDS interacting with things (Hero's
+  hands, with his sleeves matching his outfit, so put "Hero" in characters). Show Hero's face in at most 2 shots.
+- BRANDING here: put "{C.BRAND_TEXT}" boldly on 3-4 objects like a real product logo (the box, machine, device
+  screen, packaging, a sign), always where it fits naturally."""
+
+CINEMATIC_RULES = """- VISUAL STYLE: cinematic, realistic medical-explainer 3D with dramatic lighting and inside-the-body views."""
+
+
+def _script_prompt(topic, num_shots, face=None, look_name=None):
     face = face or C.HERO_FACE
-    return f"""You write viral 3D-animated explainer YouTube Shorts in the style of Zack D. Films.
+    bright = (look_name or C.DEFAULT_LOOK) == "bright"
+    if bright:
+        narration_rules = f"""- Total narration 70-100 words, calm, clear and fast-paced.
+- Narrate what happens step by step, like a calm documentary voice ("The robot is placed inside the cage.
+  Then a magnet..."). Use "you/your" when the viewer's own body or life is the subject.
+- Shot 1 starts MID-ACTION on the most striking moment of the story (no intro, no question, no "Did you know").
+  Its narration (6-12 words) states what is happening or a surprising claim.
+- Exactly {num_shots} shots. Each shot narration is ONE quick beat of 6-14 words.
+- Last shot: when it fits, end on what this means in real life ("And someday...", "That's why...") as a
+  complete sentence (never stop on words like "because", "and", "so"). Its image uses the same framing and
+  setting as shot 1, so a replay feels smooth."""
+    else:
+        narration_rules = None
+    return _apply_look(f"""You write viral 3D-animated explainer YouTube Shorts in the style of Zack D. Films.
 Topic: {topic}
 
 Rules:
@@ -154,14 +181,26 @@ Return ONLY JSON:
 {{"title": "...", "hook_title": "...", "description": "2 lines for YouTube", "tags": ["..."],
   "hero_outfit": "...",
   "cast": [{{"name": "Hero", "look": "..."}}, {{"name": "...", "look": "..."}}],
-  "shots": [{{"narration": "...", "characters": ["Hero"], "image_prompt": "...", "brand_on": "", "motion": "..."}}]}}"""
+  "shots": [{{"narration": "...", "characters": ["Hero"], "image_prompt": "...", "brand_on": "", "motion": "..."}}]}}""",
+        narration_rules, bright)
 
 
-def _own_script_prompt(text, face=None):
-    base = _script_prompt("(given below)", 7, face)
+def _apply_look(prompt, narration_rules, bright):
+    """Swap in the narration rules and the visual rules for the chosen look."""
+    if narration_rules:
+        a = prompt.index("- Total narration")
+        b = prompt.index("- hook_title:")
+        prompt = prompt[:a] + narration_rules + "\n" + prompt[b:]
+    rules = BRIGHT_RULES if bright else CINEMATIC_RULES
+    return prompt.replace("- SAFETY (the video model blocks these)", rules + "\n- SAFETY (the video model blocks these)", 1)
+
+
+def _own_script_prompt(text, face=None, look_name=None):
+    base = _script_prompt("(given below)", 7, face, look_name)
     tail = base[base.index("- CAST:"):]
     words = len(text.split())
-    n = max(4, min(10, round(words / 15)))
+    bright = (look_name or C.DEFAULT_LOOK) == "bright"
+    n = max(4, min(12, round(words / (9 if bright else 15))))
     return f"""You turn a creator's OWN narration into a viral 3D-animated explainer YouTube Short (Zack D. Films style).
 
 THE CREATOR'S NARRATION (use it EXACTLY):
@@ -220,9 +259,9 @@ def step_script(job: Job):
     face = hero_face(job.store)
     own = (st.get("script_text") or "").strip()
     if own:
-        sc = ai.text_json(_own_script_prompt(own, face), temperature=0.5)
+        sc = ai.text_json(_own_script_prompt(own, face, st.get("look")), temperature=0.5)
     else:
-        sc = ai.text_json(_script_prompt(topic, st.get("num_shots", 7), face))
+        sc = ai.text_json(_script_prompt(topic, st.get("num_shots", 7), face, st.get("look")))
     job.check()
     job.log("Fact-checking every claim...")
     try:
@@ -241,6 +280,7 @@ def step_script(job: Job):
     for s in sc["shots"]:
         s["characters"] = [c for c in s.get("characters", []) if c in cast]
     sc["fact_check"] = changes or ["all claims OK"]
+    sc["look"] = st.get("look") or C.DEFAULT_LOOK
     job.dir.mkdir(parents=True, exist_ok=True)
     job.save_script(sc)
     # a fresh script makes old images/clips stale
@@ -261,9 +301,13 @@ def _sheet_name(name):
     return f"cast_{re.sub(r'[^A-Za-z0-9]+', '_', name)}.png"
 
 
-def _sheet_prompt(look):
-    return (f"Character reference sheet of ONE person: {look}. Full body, standing, front view, neutral friendly "
-            f"expression, arms relaxed, plain light-grey background, nothing else in frame. {C.STYLE}")
+def _style(sc):
+    return C.look((sc or {}).get("look"))["style"]
+
+
+def _sheet_prompt(desc, sc=None):
+    return (f"Character reference sheet of ONE person: {desc}. Full body, standing, front view, neutral friendly "
+            f"expression, arms relaxed, plain light-grey background, nothing else in frame. {_style(sc)}")
 
 
 def _shot_prompt(sc, s):
@@ -278,7 +322,7 @@ def _shot_prompt(sc, s):
     if "Hero" in s["characters"]:
         brand += f' The "{C.BRAND_TEXT}" print on Hero\'s outfit is visible and spelled correctly.'
     return (f"{s['image_prompt']}. {('Characters in this shot - ' + who + lock + ' ') if who else ''}"
-            f"{brand} {C.STYLE}")
+            f"{brand} {_style(sc)}")
 
 
 def _refs(job, sc, i):
@@ -322,12 +366,12 @@ def step_images(job: Job, redo=None):
     else:
         job.log("Creating the mascot's face reference (first video only)...")
         ai.image(f"Head-and-shoulders portrait of {hero_face(job.store)}, wearing a plain grey t-shirt, friendly neutral "
-                 f"expression, front view, plain light-grey background. {C.STYLE}", face)
+                 f"expression, front view, plain light-grey background. {_style(sc)}", face)
         job.store.upload_file(face, C.HERO_FACE_KEY)
     hero = job.dir / _sheet_name("Hero")
     if not _valid(hero):
         job.log(f"Dressing the mascot for this story: {sc.get('hero_outfit', '')[:80]}")
-        ai.image(_sheet_prompt(cast["Hero"]), hero,
+        ai.image(_sheet_prompt(cast["Hero"], sc), hero,
                  refs=[("Hero's FACE and HAIR - keep them identical, but IGNORE these clothes and use the new outfit",
                         face)])
         job.put(hero.name)
@@ -336,7 +380,7 @@ def step_images(job: Job, redo=None):
         p = job.dir / _sheet_name(n)
         if not _valid(p):
             job.log(f"Drawing character sheet: {n}")
-            ai.image(_sheet_prompt(cast[n]), p)
+            ai.image(_sheet_prompt(cast[n], sc), p)
             job.put(p.name)
     todo = redo or [i for i in range(1, len(sc["shots"]) + 1) if not _valid(job.dir / f"shot_{i:02d}.png")]
     # shot 1 first (the last shot copies its framing), then the rest 3 at a time
@@ -361,10 +405,15 @@ def _dur(path):
     return float(out.strip())
 
 
-def _video_prompt(s, secs):
+def _video_prompt(s, secs, sc=None):
+    if (sc or {}).get("look", C.DEFAULT_LOOK) == "bright":
+        cam = ("ONE continuous smooth camera move (macro push-in, orbit or fly-through as described), shallow depth "
+               "of field, slight natural motion blur, bright clean high-key lighting, glowing effects animate smoothly")
+    else:
+        cam = "slow cinematic camera movement"
     return (f"Animate this exact image into a smooth {secs}-second shot. {s.get('motion', '')} "
             f"Keep the same 3D style, colors, characters, outfits and composition as the image. Continuous fluid "
-            f"motion, slow cinematic camera movement, vertical 9:16, 720p. "
+            f"motion, {cam}, vertical 9:16, 720p. "
             f"Keep any printed brand text ({C.BRAND_TEXT}) exactly as it appears in the image - sharp, readable, "
             f"not changing. Do not add any other text, captions or logos. No people talking.")
 
@@ -413,7 +462,7 @@ def step_video(job: Job, redo=None):
         secs = max(4, min(10, math.ceil(_dur(job.dir / f"voice_{i:02d}.mp3") + 0.3)))
         img = job.dir / f"shot_{i:02d}.png"
         try:
-            ai.video(_video_prompt(s, secs), img, out)
+            ai.video(_video_prompt(s, secs, sc), img, out)
             job.put(out.name)
             return i, "ok"
         except ai.ContentBlocked:
@@ -424,7 +473,7 @@ def step_video(job: Job, redo=None):
                 sc2 = dict(sc, shots=[safe if k == i - 1 else x for k, x in enumerate(sc["shots"])])
                 ai.image(_shot_prompt(sc2, safe), img, refs=_refs(job, sc2, i))
                 job.put(img.name)
-                ai.video(_video_prompt(safe, secs), img, out)
+                ai.video(_video_prompt(safe, secs, sc), img, out)
                 job.put(out.name)
                 return i, "ok"
             except Exception as e:
@@ -459,7 +508,9 @@ def step_video(job: Job, redo=None):
                       "audio": job.dir / f"voice_{i:02d}.mp3", "words": words[i]})
     work = job.dir / "edit"
     work.mkdir(exist_ok=True)
-    build_short(shots, work, job.dir / "final.mp4", hook_title=sc.get("hook_title", ""), watermark=C.WATERMARK_TEXT)
+    lk = C.look(sc.get("look"))
+    build_short(shots, work, job.dir / "final.mp4", hook_title=sc.get("hook_title", "") if lk["hook_title"] else "",
+                watermark=C.WATERMARK_TEXT, captions=lk["captions"])
     job.put("final.mp4")
     job.log("Writing SEO: target searches, 10 scored titles, description, tags...")
     try:

@@ -45,7 +45,43 @@ BRAND_CHARACTER = HERO_FACE + ", wearing " + DEFAULT_OUTFIT
 
 STYLE = 'Clean stylized 3D render, smooth glossy materials, soft studio lighting, subtle rim light, shallow depth of field, cinematic medical-explainer look, simple uncluttered background, vibrant but realistic colors, high detail, vertical 9:16 composition, subject centered, no captions or random text (only the brand name where it is specified), no watermark, any person is fully clothed, family-friendly'
 
+# Visual looks. "bright" = clean, toy-like studio 3D like top 3D explainer channels; "cinematic" = the original look.
+STYLE_BRIGHT = ("Bright clean stylized 3D render like a high-end 3D explainer short: glossy plastic, clay and chrome "
+                "materials, saturated colors (royal blue, cyan, chrome, warm orange, neon magenta accents), bright "
+                "sky-blue or soft pastel studio backdrop, high-key soft lighting with gentle shadows, crisp details, "
+                "shallow depth of field, extreme close-up or macro framing, vertical 9:16 composition, no captions "
+                "or random text (only the brand name where it is specified), no watermark, any person is fully "
+                "clothed, family-friendly")
+LOOKS = {
+    "bright": {"label": "Studio bright (Zack-style)", "style": STYLE_BRIGHT, "shots": 10, "captions": "clean",
+               "hook_title": False},
+    "cinematic": {"label": "Cinematic (darker, realistic)", "style": STYLE, "shots": 7, "captions": "pop",
+                  "hook_title": True},
+}
+DEFAULT_LOOK = os.environ.get("DEFAULT_LOOK", "bright")
+
+
+def look(name):
+    return LOOKS.get(name or DEFAULT_LOOK, LOOKS[DEFAULT_LOOK])
+
+
 TOPIC_BANK = [
+    # --- tech + science demos (process stories, studio-bright look)
+    "How noise-cancelling headphones erase sound",
+    "What happens inside a microwave when you heat food",
+    "How a touchscreen knows exactly where you tapped",
+    "How an induction cooktop heats only the pan",
+    "How a key actually opens a pin lock",
+    "How a fridge pulls heat out of your food",
+    "How a maglev train floats above the track",
+    "How your phone camera focuses in a split second",
+    "How a tattoo stays in your skin forever",
+    "How a phone battery stores energy",
+    "How a 3D printer builds an object layer by layer",
+    "How a car airbag inflates in milliseconds",
+    "How self-healing materials repair their own cracks",
+    "How a lightning rod protects a building",
+    "How a contactless card pays without a battery",
     'What happens inside your body when you hold in a sneeze',
     'Why your fingers get wrinkly in water',
     'What happens to your body when you stay awake for 3 days',

@@ -175,6 +175,8 @@ async function home(){
     <div class="seg" id="count" style="grid-template-columns:repeat(5,1fr)">
       ${[1,2,3,4,5].map(n=>`<button data-n="${n}" class="${n===1?"on":""}" style="text-align:center"><b>${n}</b></button>`).join("")}</div>
     <div class="small muted" id="countInfo" style="display:none;margin-top:6px">Batch: fresh random topics, fully automatic, made one after another. You'll find them all below.</div></div>
+    <label class="lbl">Look</label>
+    <select id="look">${(CFG.looks||[]).map(l=>`<option value="${l.id}" data-shots="${l.shots}" ${l.id===CFG.default_look?"selected":""}>${esc(l.label)}</option>`).join("")}</select>
     <label class="lbl">Narrator voice</label>
     <select id="voice">${(CFG.voices||[]).map(v=>`<option value="${v.id}" ${v.id===CFG.default_voice?"selected":""}>${esc(v.label)}</option>`).join("")}</select>
     <label class="lbl">Animation</label>
@@ -183,8 +185,8 @@ async function home(){
       <button data-a="hook"><b>Hook only</b><span id="c_hook"></span></button>
       <button data-a="none"><b>No video</b><span id="c_none"></span></button>
     </div>
-    <div id="nsBox"><label class="lbl">Number of shots: <b id="nsv">7</b></label>
-    <input id="ns" type="range" min="5" max="9" value="7" style="padding:0;accent-color:var(--accent)"></div>
+    <div id="nsBox"><label class="lbl">Number of shots: <b id="nsv">10</b></label>
+    <input id="ns" type="range" min="5" max="12" value="10" style="padding:0;accent-color:var(--accent)"></div>
     <label class="toggle"><input type="checkbox" id="auto"> Skip reviews (fully automatic)</label>
     <button class="primary" style="width:100%;margin-top:16px;padding:15px" id="create">Create Short</button>
   </div>
@@ -205,10 +207,13 @@ async function home(){
     if (mode==="own") { count = 1; [...$("#count").children].forEach((x,i)=>x.classList.toggle("on", i===0)); syncCount(); }
     upd(); };
   $("#ownTxt").oninput = () => { const w = $("#ownTxt").value.trim().split(/\s+/).filter(Boolean).length;
-    $("#ownInfo").textContent = `${w} words · about ${Math.round(w/2.6)} seconds · ~${Math.max(4,Math.min(10,Math.round(w/15)))} shots`; upd(); };
-  const shotsNow = () => mode==="own" ? Math.max(4,Math.min(10,Math.round($("#ownTxt").value.trim().split(/\s+/).filter(Boolean).length/15))) : +$("#ns").value;
+    $("#ownInfo").textContent = `${w} words · about ${Math.round(w/2.6)} seconds · ~${Math.max(4,Math.min(12,Math.round(w/perShot())))} shots`; upd(); };
+  const perShot = () => ($("#look") && $("#look").value==="bright") ? 9 : 15;
+  const shotsNow = () => mode==="own" ? Math.max(4,Math.min(12,Math.round($("#ownTxt").value.trim().split(/\s+/).filter(Boolean).length/perShot()))) : +$("#ns").value;
   const upd = () => { const n=shotsNow(); $("#nsv").textContent=$("#ns").value;
     ["all","hook","none"].forEach(a=>$("#c_"+a).textContent=`≈ ₹${cost(n,a)*(typeof count==="number"?count:1)}${count>1?" total":""}`); };
+  const lookSync = () => { const o = $("#look").selectedOptions[0]; if (o) { $("#ns").value = o.dataset.shots; } upd(); };
+  $("#look").onchange = lookSync; lookSync();
   upd(); $("#ns").oninput = upd;
   $("#seg").onclick = e => { const b=e.target.closest("button"); if(!b) return;
     animate=b.dataset.a; [...$("#seg").children].forEach(x=>x.classList.toggle("on", x===b)); };
@@ -222,12 +227,12 @@ async function home(){
     if (count > 1) {
       if (!confirm(`Make ${count} Shorts automatically? About ₹${cost(shotsNow(), animate)*count} of credits in total.`)) return;
       $("#create").disabled = true;
-      try { await api("/batch",{method:"POST",body:{count, animate, num_shots:shotsNow(), voice}}); toast(`${count} Shorts queued`); home(); }
+      try { await api("/batch",{method:"POST",body:{count, animate, num_shots:shotsNow(), voice, look:$("#look").value}}); toast(`${count} Shorts queued`); home(); }
       catch(e){ toast(e.message); $("#create").disabled=false; }
       return;
     }
     $("#create").disabled = true;
-    try { const st = await api("/jobs",{method:"POST",body:{topic, script_text, voice, animate, num_shots:shotsNow(), auto:$("#auto").checked}});
+    try { const st = await api("/jobs",{method:"POST",body:{topic, script_text, voice, look:$("#look").value, animate, num_shots:shotsNow(), auto:$("#auto").checked}});
           location.hash = "#/job/"+st.id; }
     catch(e){ toast(e.message); $("#create").disabled=false; }
   };
