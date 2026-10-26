@@ -424,7 +424,7 @@ def _narrate(job, sc):
     words = {}
     for i, s in enumerate(sc["shots"], 1):
         mp3, meta = job.dir / f"voice_{i:02d}.mp3", job.dir / f"voice_{i:02d}.json"
-        key = {"text": s["narration"], "voice": vid}
+        key = {"text": s["narration"], "voice": vid, "v": 2}   # v2: re-record takes from the old voice engine
         if _valid(mp3) and meta.exists():
             m = json.loads(meta.read_text())
             if m.get("key") == key:

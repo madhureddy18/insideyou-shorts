@@ -238,11 +238,16 @@ def voice(text, mp3_path, voice_id=None):
     return _edge_voice(text, mp3_path, voice_id.split(":", 1)[1] if ":" in voice_id else C.VOICE)
 
 
-def _gemini_voice(text, mp3_path, name):
+def _speech_ok(text, mp3_path):
+    """Catch a voice model that went off-script (read its instructions aloud, repeated a line):
+    the audio is then far longer than the words need."""
+    n = len(text.split())
+    dur = _media_dur(mp3_path) or 0
+    return 0.3 < dur <= n / 1.7 + 1.5
+
+
+def _tts_call(body, mp3_path, text):
     h = dict(_headers(), **{"x-goog-user-project": C.PROJECT})
-    body = {"input": {"prompt": C.TTS_STYLE, "text": text},
-            "voice": {"languageCode": "en-US", "name": name, "modelName": C.TTS_MODEL},
-            "audioConfig": {"audioEncoding": "MP3"}}
     last = None
     for attempt in range(4):
         r = requests.post(TTS_URL, headers=h, json=body, timeout=120)
@@ -254,8 +259,36 @@ def _gemini_voice(text, mp3_path, name):
             raise RuntimeError(f"{r.status_code}: {r.text[:300]}")
         Path(mp3_path).write_bytes(base64.b64decode(r.json()["audioContent"]))
         _meter("tts_chars", len(text))
-        return align_words(text, mp3_path)
+        return
     raise RuntimeError("TTS busy: " + (last or ""))
+
+
+def _gemini_voice(text, mp3_path, name):
+    """Google studio voice. First choice: Chirp 3 HD (same voices as Gemini TTS, reads ONLY the text, never
+    improvises). Backup: Gemini TTS with no instructions. Every take is length-checked so a voice that
+    repeats or adds words is thrown away."""
+    takes = [
+        {"input": {"text": text},
+         "voice": {"languageCode": "en-US", "name": f"en-US-Chirp3-HD-{name}"},
+         "audioConfig": {"audioEncoding": "MP3", "speakingRate": C.TTS_RATE}},
+        {"input": {"text": text},
+         "voice": {"languageCode": "en-US", "name": f"en-US-Chirp3-HD-{name}"},
+         "audioConfig": {"audioEncoding": "MP3"}},
+        {"input": {"text": text},
+         "voice": {"languageCode": "en-US", "name": name, "modelName": C.TTS_MODEL},
+         "audioConfig": {"audioEncoding": "MP3"}},
+    ]
+    errors = []
+    for body in takes:
+        try:
+            _tts_call(body, mp3_path, text)
+        except Exception as e:
+            errors.append(str(e)[:160])
+            continue
+        if _speech_ok(text, mp3_path):
+            return align_words(text, mp3_path)
+        errors.append(f"take was {_media_dur(mp3_path):.1f}s for {len(text.split())} words - off-script")
+    raise RuntimeError(" | ".join(errors))
 
 
 def _silences(path):

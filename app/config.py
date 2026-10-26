@@ -20,8 +20,7 @@ CREDITS_START_RS = float(os.environ.get("CREDITS_START_RS", "28757"))
 
 # Narrator voices. "gemini:<Name>" = Google Gemini TTS (natural), "edge:<voice>" = free Microsoft voice
 TTS_MODEL = os.environ.get("TTS_MODEL", "gemini-2.5-flash-tts")
-TTS_STYLE = ("Read this like a calm, confident, fast-paced science explainer narrator for a viral short video. "
-             "Clear, warm and engaging, with natural emphasis and short pauses between sentences.")
+TTS_RATE = float(os.environ.get("TTS_RATE", "1.1"))   # narration pace (1.0 = normal); Shorts like it brisk
 VOICES = [
     ("gemini:Charon", "Charon - deep, calm male (recommended)"),
     ("gemini:Puck", "Puck - upbeat, energetic male"),
