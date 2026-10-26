@@ -21,6 +21,10 @@ from .store import Store
 RUNNING_STAGES = {"queued", "scripting", "imaging", "animating"}
 
 
+class Cancelled(BaseException):
+    """Raised inside a worker when the user pressed Cancel (BaseException so generic handlers don't swallow it)."""
+
+
 def now():
     return time.strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -41,6 +45,7 @@ class Job:
         self.prefix = f"jobs/{jid}/"
         self.dir = Path(tempfile.gettempdir()) / "jobs" / jid
         self.state = store.read_json(self.prefix + "state.json") or {}
+        self.run_id = self.state.get("run_id")
         self._lock = threading.RLock()
 
     # ----- sync -----
@@ -50,8 +55,15 @@ class Job:
     def put(self, name):
         self.store.upload_file(self.dir / name, self.prefix + name)
 
+    def check(self):
+        """Stop if the user cancelled (or a newer run replaced this one)."""
+        remote = self.store.read_json(self.prefix + "state.json") or {}
+        if remote.get("run_id") != self.run_id:
+            raise Cancelled()
+
     def save(self, **kw):
         with self._lock:
+            self.check()
             self.state.update(kw)
             self.state["updated"] = now()
             self.store.write_json(self.prefix + "state.json", self.state)
@@ -142,7 +154,38 @@ Return ONLY JSON:
   "shots": [{{"narration": "...", "characters": ["Hero"], "image_prompt": "...", "brand_on": "", "motion": "..."}}]}}"""
 
 
-def _fact_check(script):
+def _own_script_prompt(text, face=None):
+    base = _script_prompt("(given below)", 7, face)
+    tail = base[base.index("- CAST:"):]
+    words = len(text.split())
+    n = max(4, min(10, round(words / 15)))
+    return f"""You turn a creator's OWN narration into a viral 3D-animated explainer YouTube Short (Zack D. Films style).
+
+THE CREATOR'S NARRATION (use it EXACTLY):
+\"\"\"{text}\"\"\"
+
+Rules:
+- Split the narration above into about {n} shots, in order. Use the creator's words EXACTLY, word for word -
+  do not add, remove, reword or "improve" anything. Every word must appear in exactly one shot's "narration".
+  Break at sentence or clause boundaries, 1-2 sentences per shot.
+- Plan visuals that show exactly what each line says. The first shot's visual must be the most striking one.
+- The last shot's image uses the SAME framing, camera angle and setting as shot 1, so a replay feels smooth.
+- hook_title: 2-5 punchy words in CAPS for the first second, based on the opening line.
+- No medical advice, no gore.
+{tail}"""
+
+
+def _fact_check(script, report_only=False):
+    if report_only:
+        prompt = f"""You are a strict science fact-checker for a popular-science YouTube Short written by a creator.
+Check every factual claim in the narration against mainstream, well-established science. DO NOT rewrite anything.
+Return ONLY JSON: {{"changes": ["warning: shot N says ... but actually ... (suggested fix: ...)", ...]}}
+Return an empty list if every claim is accurate.
+
+NARRATION:
+{json.dumps([s["narration"] for s in script["shots"]])}"""
+        fc = ai.text_json(prompt, temperature=0.2)
+        return fc.get("changes", [])
     prompt = f"""You are a strict science fact-checker for a popular-science YouTube Short.
 Check every factual claim in the narration and hook_title below against mainstream, well-established science.
 - If a claim is wrong, exaggerated or a myth, rewrite ONLY that narration so it is accurate, keeping it short,
@@ -164,16 +207,25 @@ SCRIPT:
 def step_script(job: Job):
     st = job.state
     topic = st.get("topic") or ""
-    if not topic:
+    if (st.get("script_text") or "").strip():
+        topic = topic or "My own script"
+    elif not topic:
         used = brand_used(job.store)
         topic = random.choice([t for t in C.TOPIC_BANK if t not in used] or C.TOPIC_BANK)
     job.save(stage="scripting", topic=topic)
     job.log(f"Writing script: {topic}")
     face = hero_face(job.store)
-    sc = ai.text_json(_script_prompt(topic, st.get("num_shots", 7), face))
+    own = (st.get("script_text") or "").strip()
+    if own:
+        sc = ai.text_json(_own_script_prompt(own, face), temperature=0.5)
+    else:
+        sc = ai.text_json(_script_prompt(topic, st.get("num_shots", 7), face))
+    job.check()
     job.log("Fact-checking every claim...")
     try:
-        changes = _fact_check(sc)
+        changes = _fact_check(sc, report_only=bool(own))
+        if own and not changes:
+            changes = ["your script: all claims look accurate"]
     except Exception as e:
         changes = [f"fact-check skipped: {str(e)[:100]}"]
     cast = {c["name"]: c["look"] for c in sc.get("cast", []) if c.get("name")}
@@ -240,6 +292,7 @@ def _valid(p):
 
 
 def _make_shot(job, sc, i):
+    job.check()
     p = job.dir / f"shot_{i:02d}.png"
     last = None
     for attempt in range(3):
@@ -331,7 +384,7 @@ def step_video(job: Job):
         if _valid(out):
             return i, "ok"
         clips[str(i)] = "animating"
-        job.save(clips=clips)
+        job.save(clips=clips)            # also checks for Cancel
         secs = max(4, min(10, math.ceil(_dur(job.dir / f"voice_{i:02d}.mp3") + 0.3)))
         img = job.dir / f"shot_{i:02d}.png"
         try:
@@ -369,6 +422,7 @@ def step_video(job: Job):
             for i, status in ex.map(do_clip, targets[1:]):
                 mark(i, status)
 
+    job.check()
     job.log("Editing: captions, hook title, sound, loudness...")
     shots = []
     for i in range(1, n + 1):
@@ -386,7 +440,8 @@ def step_video(job: Job):
               + " ".join("#" + t.replace(" ", "") for t in sc.get("tags", [])))
     (job.dir / "upload.txt").write_text(upload)
     job.put("upload.txt")
-    brand_mark_used(job.store, job.state.get("topic", ""))
+    if not job.state.get("script_text"):
+        brand_mark_used(job.store, job.state.get("topic", ""))
     job.log("Done! Your Short is ready")
     job.save(stage="done", clips=clips)
 
@@ -407,9 +462,14 @@ def run(store: Store, jid: str, step: str, arg: str = ""):
             step_images(job, redo=[int(x) for x in arg.split(",") if x.strip().isdigit()])
         else:
             STEPS[step](job)
+    except Cancelled:
+        print("cancelled by user", flush=True)
     except Exception as e:
         traceback.print_exc()
         job.state.setdefault("logs", []).append(f"{time.strftime('%H:%M:%S')}  ERROR: {str(e)[:300]}")
-        job.save(stage="failed", failed_step=step, error=str(e)[:500], status="Failed: " + str(e)[:150])
+        try:
+            job.save(stage="failed", failed_step=step, error=str(e)[:500], status="Failed: " + str(e)[:150])
+        except Cancelled:
+            pass
     finally:
         shutil.rmtree(job.dir, ignore_errors=True)

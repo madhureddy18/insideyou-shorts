@@ -71,7 +71,12 @@ def login(body: Login):
 
 
 # ------------------------------------------------------------------ running steps
-def _trigger(jid, step, arg=""):
+def _trigger(jid, step, st, arg=""):
+    """Start a step. Each run gets a run_id; Cancel clears it so the worker stops at its next checkpoint."""
+    import secrets
+    st["prev_stage"] = st.get("stage") if st.get("stage") not in engine.RUNNING_STAGES else st.get("prev_stage")
+    _save_state(jid, st, stage="queued", status="Starting...", error=None, run_id=secrets.token_hex(6),
+                execution=None)
     args = ["-m", "app.worker", jid, step] + ([arg] if arg else [])
     if RUN_MODE != "cloudrun":
         threading.Thread(target=engine.run, args=(store, jid, step, arg), daemon=True).start()
@@ -81,7 +86,13 @@ def _trigger(jid, step, arg=""):
     r = requests.post(url, headers=_headers(),
                       json={"overrides": {"containerOverrides": [{"args": args}]}}, timeout=60)
     if not r.ok:
+        _save_state(jid, st, stage=st.get("prev_stage") or "failed", run_id=None,
+                    error=f"Could not start worker: {r.status_code}")
         raise HTTPException(500, f"Could not start worker: {r.status_code} {r.text[:300]}")
+    execution = (r.json().get("metadata") or {}).get("name")
+    if execution:
+        fresh = store.read_json(f"jobs/{jid}/state.json") or st
+        _save_state(jid, fresh, execution=execution)
 
 
 def _busy(st):
@@ -118,6 +129,7 @@ def config():
 
 class NewJob(BaseModel):
     topic: str = ""
+    script_text: str = ""
     animate: str = "all"
     num_shots: int = 7
     auto: bool = False
@@ -127,13 +139,19 @@ class NewJob(BaseModel):
 def create(body: NewJob):
     if body.animate not in ("all", "hook", "none"):
         raise HTTPException(400, "bad animate value")
+    script_text = body.script_text.strip()
+    if script_text and len(script_text.split()) < 15:
+        raise HTTPException(400, "Your script is too short - write at least 2-3 sentences")
+    if len(script_text) > 4000:
+        raise HTTPException(400, "Your script is too long for a Short (max ~600 words)")
     jid = engine.new_job_id()
-    st = {"id": jid, "created": engine.now(), "topic": body.topic.strip(), "animate": body.animate,
+    st = {"id": jid, "created": engine.now(), "topic": body.topic.strip(), "script_text": script_text,
+          "animate": body.animate,
           "num_shots": max(4, min(9, body.num_shots)), "auto": body.auto, "stage": "queued",
           "status": "Starting...", "logs": [], "clips": {}, "images": [],
           "estimate_rs": engine.estimate_rs(body.num_shots, body.animate)}
     _save_state(jid, st)
-    _trigger(jid, "auto" if body.auto else "script")
+    _trigger(jid, "auto" if body.auto else "script", st)
     return st
 
 
@@ -199,9 +217,34 @@ def run_step(jid: str, body: StepReq):
         if len(st.get("images") or []) < len(sc["shots"]):
             raise HTTPException(400, "Some images are missing - redo them first")
     arg = ",".join(str(i) for i in (body.shots or []))
-    _save_state(jid, st, stage="queued", status="Starting...", error=None)
-    _trigger(jid, body.step, arg)
+    _trigger(jid, body.step, st, arg)
     return {"ok": True}
+
+
+@app.post("/api/jobs/{jid}/cancel")
+def cancel(jid: str):
+    """Stop the running step right away and go back to the last review screen."""
+    st = _state(jid)
+    if st.get("stage") not in engine.RUNNING_STAGES:
+        raise HTTPException(400, "Nothing is running")
+    if RUN_MODE == "cloudrun" and st.get("execution"):
+        from .ai import _headers
+        try:
+            requests.post(f"https://run.googleapis.com/v2/{st['execution']}:cancel", headers=_headers(), timeout=30)
+        except Exception:
+            pass                                    # the worker also stops by itself at its next checkpoint
+    has_script = store.read_json(f"jobs/{jid}/script.json") is not None
+    names = set(store.list_names(f"jobs/{jid}/"))
+    sc = store.read_json(f"jobs/{jid}/script.json") or {"shots": []}
+    imgs = [i for i in range(1, len(sc["shots"]) + 1) if f"shot_{i:02d}.png" in names]
+    stage = {"scripting": "script_ready" if has_script else "cancelled",
+             "imaging": "images_ready" if imgs else ("script_ready" if has_script else "cancelled"),
+             "animating": "images_ready"}.get(st.get("stage"))
+    if not stage:                                   # still queued: go back to where it was
+        stage = st.get("prev_stage") or ("script_ready" if has_script else "cancelled")
+    logs = (st.get("logs") or []) + [f"{time.strftime('%H:%M:%S')}  Cancelled by you"]
+    _save_state(jid, st, stage=stage, run_id=None, status="Cancelled", images=imgs, logs=logs[-60:])
+    return {"ok": True, "stage": stage}
 
 
 @app.delete("/api/jobs/{jid}")

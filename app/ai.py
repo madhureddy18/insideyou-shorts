@@ -220,6 +220,16 @@ def voice(text, mp3_path):
 
 # ---------------------------------------------------------------- fake mode (local tests, no credits)
 def _fake_text(prompt):
+    if "NARRATION:" in prompt and prompt.startswith("You are a strict"):
+        return {"changes": ["(fake) warning: shot 2 sounds exaggerated"]}
+    if prompt.startswith("You turn a creator's"):
+        text = prompt.split('"""')[1]
+        sents = [s.strip() + "." for s in text.replace("!", ".").replace("?", ".").split(".") if s.strip()]
+        shots = [{"narration": s, "characters": ["Hero"] if k % 2 == 0 else [], "image_prompt": f"own shot {k+1}",
+                  "brand_on": "", "motion": "slow push"} for k, s in enumerate(sents)]
+        return {"title": "My own script test", "hook_title": "OWN SCRIPT", "description": "d", "tags": ["t"],
+                "hero_outfit": "grey hoodie with VERSE FILMS on the chest", "cast": [{"name": "Hero", "look": "x"}],
+                "shots": shots}
     if prompt.startswith("You are a strict"):
         sc = json.loads(prompt[prompt.index("SCRIPT:") + 7:])
         return {"script": sc, "changes": ["(fake) all claims OK"]}
@@ -240,7 +250,7 @@ def _fake_image(prompt, out_path):
     d.ellipse((200, 450, 568, 900), fill=(240, 190, 60))
     d.text((40, 40), prompt[:60], fill="white")
     im.save(out_path)
-    time.sleep(0.3)
+    time.sleep(float(os.environ.get("FAKE_DELAY", "0.3")))
 
 
 def _fake_video(out_path):

@@ -109,7 +109,7 @@ async function api(path, opts={}){
 const STAGE = {
   queued:["Starting","run"], scripting:["Writing script","run"], script_ready:["Review script","wait"],
   imaging:["Drawing images","run"], images_ready:["Review images","wait"], animating:["Animating video","run"],
-  done:["Ready","ok"], failed:["Failed","bad"]
+  done:["Ready","ok"], failed:["Failed","bad"], cancelled:["Cancelled","bad"]
 };
 const chip = st => { const [t,c] = STAGE[st] || [st,""]; return `<span class="chip ${c}">${t}</span>`; };
 const file = (id, name, v) => `/api/jobs/${id}/file/${name}?v=${encodeURIComponent(v||"")}`;
@@ -141,6 +141,16 @@ async function home(){
   app.innerHTML = header(false) + `
   <div class="card">
     <h2>New Short</h2><div class="muted small">${fresh} fresh topics left in your bank</div>
+    <div class="seg" id="mode" style="grid-template-columns:1fr 1fr;margin-top:14px">
+      <button data-m="ai" class="on"><b>✨ AI writes it</b><span>pick a topic</span></button>
+      <button data-m="own"><b>✍️ My own script</b><span>paste your narration</span></button>
+    </div>
+    <div id="ownBox" style="display:none">
+      <label class="lbl">Your narration (the voice reads it word for word)</label>
+      <textarea id="ownTxt" rows="7" placeholder="Your fingers aren't absorbing water. Your brain is doing this..."></textarea>
+      <div class="small muted" id="ownInfo">0 words · aim for 80–130 words (about 35–50 seconds)</div>
+    </div>
+    <div id="aiBox">
     <label class="lbl">Topic</label>
     <select id="topicSel">
       <option value="">🎲 Surprise me (unused topic)</option>
@@ -148,32 +158,42 @@ async function home(){
       <option value="__custom">✏️ Type my own topic…</option>
     </select>
     <input id="topicTxt" placeholder="e.g. What happens to your body if you sleep only 4 hours" style="display:none;margin-top:8px">
+    </div>
     <label class="lbl">Animation</label>
     <div class="seg" id="seg">
       <button data-a="all" class="on"><b>Every shot</b><span id="c_all"></span></button>
       <button data-a="hook"><b>Hook only</b><span id="c_hook"></span></button>
       <button data-a="none"><b>No video</b><span id="c_none"></span></button>
     </div>
-    <label class="lbl">Number of shots: <b id="nsv">7</b></label>
-    <input id="ns" type="range" min="5" max="9" value="7" style="padding:0;accent-color:var(--accent)">
+    <div id="nsBox"><label class="lbl">Number of shots: <b id="nsv">7</b></label>
+    <input id="ns" type="range" min="5" max="9" value="7" style="padding:0;accent-color:var(--accent)"></div>
     <label class="toggle"><input type="checkbox" id="auto"> Skip reviews (fully automatic)</label>
     <button class="primary" style="width:100%;margin-top:16px;padding:15px" id="create">Create Short</button>
   </div>
   <div class="row" style="margin:22px 0 10px"><h3>Your Shorts</h3><span class="spacer"></span>
     ${CFG.has_hero?`<a href="/api/brand/hero" target="_blank" class="small muted">mascot</a>`:""}</div>
   <div class="list" id="jobs"><div class="muted small">Loading…</div></div>`;
-  let animate = "all";
-  const upd = () => { const n=+$("#ns").value; $("#nsv").textContent=n;
+  let animate = "all", mode = "ai";
+  $("#mode").onclick = e => { const b=e.target.closest("button"); if(!b) return; mode=b.dataset.m;
+    [...$("#mode").children].forEach(x=>x.classList.toggle("on", x===b));
+    $("#ownBox").style.display = mode==="own"?"block":"none"; $("#aiBox").style.display = mode==="ai"?"block":"none";
+    $("#nsBox").style.display = mode==="ai"?"block":"none"; upd(); };
+  $("#ownTxt").oninput = () => { const w = $("#ownTxt").value.trim().split(/\s+/).filter(Boolean).length;
+    $("#ownInfo").textContent = `${w} words · about ${Math.round(w/2.6)} seconds · ~${Math.max(4,Math.min(10,Math.round(w/15)))} shots`; upd(); };
+  const shotsNow = () => mode==="own" ? Math.max(4,Math.min(10,Math.round($("#ownTxt").value.trim().split(/\s+/).filter(Boolean).length/15))) : +$("#ns").value;
+  const upd = () => { const n=shotsNow(); $("#nsv").textContent=$("#ns").value;
     ["all","hook","none"].forEach(a=>$("#c_"+a).textContent=`≈ ₹${cost(n,a)}`); };
   upd(); $("#ns").oninput = upd;
   $("#seg").onclick = e => { const b=e.target.closest("button"); if(!b) return;
     animate=b.dataset.a; [...$("#seg").children].forEach(x=>x.classList.toggle("on", x===b)); };
   $("#topicSel").onchange = () => { const c=$("#topicSel").value==="__custom"; $("#topicTxt").style.display=c?"block":"none"; if(c) $("#topicTxt").focus(); };
   $("#create").onclick = async () => {
-    const sel=$("#topicSel").value, topic = sel==="__custom" ? $("#topicTxt").value.trim() : sel;
-    if (sel==="__custom" && !topic) return toast("Type a topic first");
+    const sel=$("#topicSel").value, topic = mode==="own" ? "" : (sel==="__custom" ? $("#topicTxt").value.trim() : sel);
+    const script_text = mode==="own" ? $("#ownTxt").value.trim() : "";
+    if (mode==="ai" && sel==="__custom" && !topic) return toast("Type a topic first");
+    if (mode==="own" && script_text.split(/\s+/).length < 15) return toast("Write at least 2-3 sentences");
     $("#create").disabled = true;
-    try { const st = await api("/jobs",{method:"POST",body:{topic, animate, num_shots:+$("#ns").value, auto:$("#auto").checked}});
+    try { const st = await api("/jobs",{method:"POST",body:{topic, script_text, animate, num_shots:shotsNow(), auto:$("#auto").checked}});
           location.hash = "#/job/"+st.id; }
     catch(e){ toast(e.message); $("#create").disabled=false; }
   };
@@ -225,6 +245,7 @@ function render(d){
       ${st.stage==="animating" && Object.keys(st.clips||{}).length ? `<div class="clipgrid">${Object.entries(st.clips).map(([k,v])=>
         `<div>Shot ${k}<br>${v==="ok"?'<span style="color:var(--ok)">✓ animated</span>':v==="animating"?'<span style="color:var(--accent)">animating…</span>':v.startsWith("zoom")?'<span style="color:var(--warn)">still + zoom</span>':'<span class="muted">waiting</span>'}</div>`).join("")}</div>`:""}
       <div class="logs" id="logs">${esc((st.logs||[]).slice(-14).join("\n"))}</div></div>`;
+    sticky.innerHTML = `<div class="sticky"><div class="in"><button class="danger" style="background:var(--bg)" onclick="cancelJob('${id}')">✕ Cancel</button></div></div>`;
     if (st.stage==="imaging" && (st.images||[]).length) html += imagesGrid(st, sc, false);
   }
   else if (st.stage==="failed" || (["scripting","imaging","animating"].includes(st.stage) && st.busy===false)) {
@@ -233,6 +254,11 @@ function render(d){
       <div class="muted small" style="margin:6px 0 12px">${esc(st.error||"")}</div>
       <div class="logs">${esc((st.logs||[]).slice(-10).join("\n"))}</div></div>`;
     sticky.innerHTML = `<div class="sticky"><div class="in"><button class="primary" onclick="step('${id}','${st.failed_step==="auto"?"script":(st.failed_step||"script")}')">Retry</button></div></div>`;
+  }
+  else if (st.stage==="cancelled") {
+    html += `<div class="card"><h3>Cancelled</h3><div class="muted small" style="margin-top:6px">Nothing else will run for this Short.</div></div>`;
+    sticky.innerHTML = `<div class="sticky"><div class="in"><button class="danger" onclick="del('${id}')">Delete</button>
+      <button class="primary" onclick="step('${id}','script')">Start again</button></div></div>`;
   }
   else if (st.stage==="script_ready" && sc) {
     html += `<div class="card" id="editor"><h3>Review the script</h3>
@@ -310,6 +336,10 @@ async function saveScript(id){
 async function approveScript(id){ try { await saveScript(id); step(id, "images"); } catch(e){ toast(e.message); } }
 function regenScript(id){ if (confirm("Write a completely new script for this topic?")) step(id, "script"); }
 function redo(id){ if (selected.size) step(id, "images", [...selected].sort((a,b)=>a-b)); }
+async function cancelJob(id){
+  if (!confirm("Cancel this step? Finished work is kept and you go back to the last review screen.")) return;
+  try { const r = await api(`/jobs/${id}/cancel`, {method:"POST"}); toast("Cancelled"); jobPage(id); } catch(e){ toast(e.message); }
+}
 function startVideo(id, c){ if (confirm(`Start video generation? This uses about ₹${c} of your credits.`)) step(id, "video"); }
 async function del(id){ if (!confirm("Delete this Short permanently?")) return;
   try { await api(`/jobs/${id}`, {method:"DELETE"}); location.hash="#/"; } catch(e){ toast(e.message); } }
