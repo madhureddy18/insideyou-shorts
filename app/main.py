@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import os
+import re
 import tempfile
 import threading
 import time
@@ -378,20 +379,37 @@ def delete_job(jid: str):
 _CACHE = Path(tempfile.gettempdir()) / "iy_cache"
 
 
+CACHE_MB = 300          # Cloud Run's disk is its memory: keep the file cache small or the app crashes
+
+
+def _prune_cache():
+    files = sorted((p for p in _CACHE.rglob("*") if p.is_file()), key=lambda p: p.stat().st_mtime)
+    total = sum(p.stat().st_size for p in files)
+    while files and total > CACHE_MB * 1024 * 1024:
+        f = files.pop(0)
+        total -= f.stat().st_size
+        f.unlink(missing_ok=True)
+
+
 @app.get("/api/jobs/{jid}/file/{name}")
 def file(jid: str, name: str, v: str = ""):
     if "/" in name or ".." in name or "/" in jid or ".." in jid:
         raise HTTPException(400)
     key = f"jobs/{jid}/{name}"
-    local = _CACHE / jid / f"{v}_{name}"
+    download = v == "dl"
+    if download:                       # same cached copy as the player, named after the finished version
+        st = store.read_json(f"jobs/{jid}/state.json") or {}
+        v = str(st.get("final_at") or st.get("updated") or "")
+    ver = re.sub(r"[^A-Za-z0-9_.-]", "_", v)[:40]
+    local = _CACHE / jid / f"{ver}_{name}"
     if not local.exists():
-        data = store.read_bytes(key)
-        if not data:
+        _prune_cache()
+        if not store.download_file(key, local):
             raise HTTPException(404)
-        local.parent.mkdir(parents=True, exist_ok=True)
-        local.write_bytes(data)
-    headers = {"Cache-Control": "private, max-age=31536000" if v else "no-cache"}
-    if name.endswith(".mp4") and v == "dl":
+    else:
+        os.utime(local)
+    headers = {"Cache-Control": "private, max-age=31536000" if v and not download else "no-cache"}
+    if name.endswith(".mp4") and download:
         headers["Content-Disposition"] = f'attachment; filename="{jid}.mp4"'
     return FileResponse(local, headers=headers)
 

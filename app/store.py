@@ -83,6 +83,25 @@ class Store:
         d = self.root / prefix
         return sorted(p.name for p in d.iterdir() if p.is_dir()) if d.exists() else []
 
+    def download_file(self, key, path):
+        """Copy one object straight to disk (no big bytes in memory). False if it doesn't exist."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".part")
+        try:
+            if self.bucket_name:
+                self._bucket.blob(key).download_to_filename(str(tmp))
+            else:
+                src = self.root / key
+                if not src.exists():
+                    return False
+                tmp.write_bytes(src.read_bytes())
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            return False
+        tmp.replace(path)
+        return True
+
     def download_prefix(self, prefix, dest):
         dest = Path(dest)
         dest.mkdir(parents=True, exist_ok=True)
