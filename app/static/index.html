@@ -26,6 +26,8 @@ textarea{resize:vertical;min-height:64px}
 input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
 .wrap{max-width:980px;margin:0 auto;padding:16px 16px 96px}
 header{display:flex;align-items:center;gap:10px;padding:6px 0 18px}
+header h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header button{padding:9px 11px;white-space:nowrap;flex:none}
 .logo{width:34px;height:34px;border-radius:10px;background:var(--accent);display:grid;place-items:center;color:var(--accent-ink);font:700 18px "Space Grotesk"}
 h1,h2,h3{font-family:"Space Grotesk",sans-serif;margin:0;letter-spacing:-.01em}
 h1{font-size:20px} h2{font-size:22px;margin-bottom:6px} h3{font-size:16px}
@@ -109,7 +111,7 @@ async function api(path, opts={}){
 const STAGE = {
   queued:["Starting","run"], scripting:["Writing script","run"], script_ready:["Review script","wait"],
   imaging:["Drawing images","run"], images_ready:["Review images","wait"], animating:["Animating video","run"],
-  done:["Ready","ok"], failed:["Failed","bad"], cancelled:["Cancelled","bad"]
+  done:["Ready","ok"], failed:["Failed","bad"], cancelled:["Cancelled","bad"], waiting:["In batch queue","wait"]
 };
 const chip = st => { const [t,c] = STAGE[st] || [st,""]; return `<span class="chip ${c}">${t}</span>`; };
 const file = (id, name, v) => `/api/jobs/${id}/file/${name}?v=${encodeURIComponent(v||"")}`;
@@ -118,7 +120,8 @@ const cost = (n, a) => CFG ? CFG.rs_base + (a==="none"?0:a==="hook"?1:n)*CFG.rs_
 function header(back){
   return `<header>${back?`<button class="ghost" onclick="location.hash='#/'" aria-label="Back">←</button>`:""}
     <div class="logo">i</div><h1>InsideYou Studio</h1><span class="spacer"></span>
-    ${back?"":`<button class="ghost" onclick="location.hash='#/face'">🙂 My Face</button>`}</header>`;
+    ${back?"":`<button class="ghost" onclick="location.hash='#/face'">🙂 Face</button>
+    <button class="ghost" onclick="location.hash='#/settings'" aria-label="Settings">⚙️</button>`}</header>`;
 }
 
 /* ---------------- login ---------------- */
@@ -136,9 +139,18 @@ function showLogin(){
 /* ---------------- home ---------------- */
 async function home(){
   clearInterval(timer); sticky.innerHTML="";
-  CFG = CFG || await api("/config");
+  CFG = await api("/config");
   const fresh = CFG.topics.filter(t=>!t.used).length;
+  const sp = CFG.spend || {}, pct = Math.max(0, Math.min(100, 100 * (sp.left_rs ?? 0) / (sp.credits_start_rs || 1)));
   app.innerHTML = header(false) + `
+  <div class="card" style="padding:14px 18px">
+    <div class="row small"><b>Credits left ≈ ₹${Math.round(sp.left_rs ?? 0).toLocaleString("en-IN")}</b><span class="spacer"></span>
+      <span class="muted">this month ₹${Math.round(sp.month_rs || 0).toLocaleString("en-IN")}</span></div>
+    <div style="height:8px;border-radius:9px;background:var(--panel2);margin-top:8px;overflow:hidden">
+      <div style="height:100%;width:${pct}%;background:${pct<10?"var(--bad)":pct<25?"var(--warn)":"var(--ok)"}"></div></div>
+    ${pct<10?`<div class="small" style="color:var(--bad);margin-top:6px">Credits are almost used up - switch to "Hook only" to stretch them.</div>`:""}
+    <div class="small muted" style="margin-top:6px">Estimated from what the app used. Check Billing → Credits in Google Cloud for the exact figure.</div>
+  </div>
   <div class="card">
     <h2>New Short</h2><div class="muted small">${fresh} fresh topics left in your bank</div>
     <div class="seg" id="mode" style="grid-template-columns:1fr 1fr;margin-top:14px">
@@ -159,6 +171,12 @@ async function home(){
     </select>
     <input id="topicTxt" placeholder="e.g. What happens to your body if you sleep only 4 hours" style="display:none;margin-top:8px">
     </div>
+    <div id="countBox"><label class="lbl">How many Shorts</label>
+    <div class="seg" id="count" style="grid-template-columns:repeat(5,1fr)">
+      ${[1,2,3,4,5].map(n=>`<button data-n="${n}" class="${n===1?"on":""}" style="text-align:center"><b>${n}</b></button>`).join("")}</div>
+    <div class="small muted" id="countInfo" style="display:none;margin-top:6px">Batch: fresh random topics, fully automatic, made one after another. You'll find them all below.</div></div>
+    <label class="lbl">Narrator voice</label>
+    <select id="voice">${(CFG.voices||[]).map(v=>`<option value="${v.id}" ${v.id===CFG.default_voice?"selected":""}>${esc(v.label)}</option>`).join("")}</select>
     <label class="lbl">Animation</label>
     <div class="seg" id="seg">
       <button data-a="all" class="on"><b>Every shot</b><span id="c_all"></span></button>
@@ -173,16 +191,24 @@ async function home(){
   <div class="row" style="margin:22px 0 10px"><h3>Your Shorts</h3><span class="spacer"></span>
     ${CFG.has_hero?`<a href="/api/brand/hero" target="_blank" class="small muted">mascot</a>`:""}</div>
   <div class="list" id="jobs"><div class="muted small">Loading…</div></div>`;
-  let animate = "all", mode = "ai";
+  let animate = "all", mode = "ai", count = 1;
+  const syncCount = () => { const b = count > 1;
+    $("#topicSel").parentElement.querySelectorAll("#topicSel,#topicTxt").forEach(x=>x.disabled=b);
+    $("#countInfo").style.display = b ? "block" : "none"; $("#auto").checked = b || $("#auto").checked; $("#auto").disabled = b;
+    $("#create").textContent = b ? `Create ${count} Shorts` : "Create Short"; upd(); };
+  $("#count").onclick = e => { const b=e.target.closest("button"); if(!b) return; count=+b.dataset.n;
+    [...$("#count").children].forEach(x=>x.classList.toggle("on", x===b)); syncCount(); };
   $("#mode").onclick = e => { const b=e.target.closest("button"); if(!b) return; mode=b.dataset.m;
     [...$("#mode").children].forEach(x=>x.classList.toggle("on", x===b));
     $("#ownBox").style.display = mode==="own"?"block":"none"; $("#aiBox").style.display = mode==="ai"?"block":"none";
-    $("#nsBox").style.display = mode==="ai"?"block":"none"; upd(); };
+    $("#nsBox").style.display = mode==="ai"?"block":"none"; $("#countBox").style.display = mode==="ai"?"block":"none";
+    if (mode==="own") { count = 1; [...$("#count").children].forEach((x,i)=>x.classList.toggle("on", i===0)); syncCount(); }
+    upd(); };
   $("#ownTxt").oninput = () => { const w = $("#ownTxt").value.trim().split(/\s+/).filter(Boolean).length;
     $("#ownInfo").textContent = `${w} words · about ${Math.round(w/2.6)} seconds · ~${Math.max(4,Math.min(10,Math.round(w/15)))} shots`; upd(); };
   const shotsNow = () => mode==="own" ? Math.max(4,Math.min(10,Math.round($("#ownTxt").value.trim().split(/\s+/).filter(Boolean).length/15))) : +$("#ns").value;
   const upd = () => { const n=shotsNow(); $("#nsv").textContent=$("#ns").value;
-    ["all","hook","none"].forEach(a=>$("#c_"+a).textContent=`≈ ₹${cost(n,a)}`); };
+    ["all","hook","none"].forEach(a=>$("#c_"+a).textContent=`≈ ₹${cost(n,a)*(typeof count==="number"?count:1)}${count>1?" total":""}`); };
   upd(); $("#ns").oninput = upd;
   $("#seg").onclick = e => { const b=e.target.closest("button"); if(!b) return;
     animate=b.dataset.a; [...$("#seg").children].forEach(x=>x.classList.toggle("on", x===b)); };
@@ -192,8 +218,16 @@ async function home(){
     const script_text = mode==="own" ? $("#ownTxt").value.trim() : "";
     if (mode==="ai" && sel==="__custom" && !topic) return toast("Type a topic first");
     if (mode==="own" && script_text.split(/\s+/).length < 15) return toast("Write at least 2-3 sentences");
+    const voice = $("#voice").value;
+    if (count > 1) {
+      if (!confirm(`Make ${count} Shorts automatically? About ₹${cost(shotsNow(), animate)*count} of credits in total.`)) return;
+      $("#create").disabled = true;
+      try { await api("/batch",{method:"POST",body:{count, animate, num_shots:shotsNow(), voice}}); toast(`${count} Shorts queued`); home(); }
+      catch(e){ toast(e.message); $("#create").disabled=false; }
+      return;
+    }
     $("#create").disabled = true;
-    try { const st = await api("/jobs",{method:"POST",body:{topic, script_text, animate, num_shots:shotsNow(), auto:$("#auto").checked}});
+    try { const st = await api("/jobs",{method:"POST",body:{topic, script_text, voice, animate, num_shots:shotsNow(), auto:$("#auto").checked}});
           location.hash = "#/job/"+st.id; }
     catch(e){ toast(e.message); $("#create").disabled=false; }
   };
@@ -236,10 +270,16 @@ function render(d){
   const st = d.state, sc = d.script, id = st.id;
   const running = ["queued","scripting","imaging","animating"].includes(st.stage) && st.busy !== false;
   let html = header(true) + `<div class="row" style="margin-bottom:6px"><h2 style="margin:0">${esc(sc?.title || st.topic || "New Short")}</h2></div>
-    <div class="row muted small" style="margin-bottom:14px">${chip(st.stage)}<span>${esc(st.topic||"")}</span></div>` + progressBar(st.stage);
+    <div class="row muted small" style="margin-bottom:14px">${chip(st.stage)}<span>${esc(st.topic||"")}</span>
+      ${st.spent_rs?`<span class="spacer"></span><span>spent ≈ ₹${Math.round(st.spent_rs)}</span>`:""}</div>` + progressBar(st.stage);
   sticky.innerHTML = "";
 
-  if (running || st.stage==="queued") {
+  if (st.stage==="waiting") {
+    html += `<div class="card"><div class="row"><div class="spin"></div><b>${esc(st.status||"Waiting in batch")}</b></div>
+      <div class="muted small" style="margin-top:6px">It starts automatically when the Shorts before it are finished.</div></div>`;
+    sticky.innerHTML = `<div class="sticky"><div class="in"><button class="danger" style="background:var(--bg)" onclick="cancelJob('${id}')">✕ Remove from batch</button></div></div>`;
+  }
+  else if (running || st.stage==="queued") {
     html += `<div class="card"><div class="row"><div class="spin"></div><b>${esc(st.status||"Working…")}</b></div>
       <div class="muted small" style="margin-top:6px">You can close this page - it keeps running in the cloud.</div>
       ${st.stage==="animating" && Object.keys(st.clips||{}).length ? `<div class="clipgrid">${Object.entries(st.clips).map(([k,v])=>
@@ -292,7 +332,12 @@ function render(d){
         <button class="ghost" style="flex:1" onclick="copyText('upload')">Copy upload text</button></div>
       <label class="lbl">Upload text</label><div class="copybox" id="upload">${esc(d.upload)}</div>
       <div class="small muted" style="margin-top:10px">Tip: when uploading, tick YouTube's "altered or synthetic content" box and Instagram's "AI info" label.</div></div>
-      ${Object.keys(st.clips||{}).length?`<div class="card small muted">Clips: ${Object.entries(st.clips).map(([k,v])=>`shot ${k} ${v==="ok"?"✓":"still"}`).join(" · ")}</div>`:""}
+      ${sc ? `<div class="card"><h3>Fix a shot</h3><div class="small muted" style="margin-bottom:10px">Not happy with one animation? Redo just that clip - the rest stays the same.</div>
+        <div class="grid">${sc.shots.map((s,i)=>{ const k=i+1, v=(st.clips||{})[k];
+          return `<div class="tile"><span class="num">${k}</span>
+            <img loading="lazy" src="${file(id,`shot_${String(k).padStart(2,"0")}.png`,st.updated)}" alt="">
+            <div class="cap">${v==="ok"?"✓ animated":"still + zoom"}</div>
+            <button class="ghost" style="width:calc(100% - 16px);margin:0 8px 8px;padding:8px" onclick="redoClip('${id}',${k})">↻ ${v==="ok"?"Redo":"Animate"} · ≈₹${CFG?CFG.rs_per_shot:55}</button></div>`; }).join("")}</div></div>` : ""}
       <div class="row"><button class="danger" onclick="del('${id}')">Delete</button><span class="spacer"></span>
       <button class="ghost" onclick="location.hash='#/'">Make another</button></div>`;
   }
@@ -336,6 +381,9 @@ async function saveScript(id){
 async function approveScript(id){ try { await saveScript(id); step(id, "images"); } catch(e){ toast(e.message); } }
 function regenScript(id){ if (confirm("Write a completely new script for this topic?")) step(id, "script"); }
 function redo(id){ if (selected.size) step(id, "images", [...selected].sort((a,b)=>a-b)); }
+function redoClip(id, k){
+  if (confirm(`Re-animate shot ${k}? This uses about ₹${CFG?CFG.rs_per_shot:55} and re-edits the video.`)) step(id, "video", [k]);
+}
 async function cancelJob(id){
   if (!confirm("Cancel this step? Finished work is kept and you go back to the last review screen.")) return;
   try { const r = await api(`/jobs/${id}/cancel`, {method:"POST"}); toast("Cancelled"); jobPage(id); } catch(e){ toast(e.message); }
@@ -395,12 +443,37 @@ async function faceApprove(){ try { await api("/face/approve", {method:"POST"});
 async function faceReset(){ if (!confirm("Stop using your face and go back to the default mascot?")) return;
   try { await api("/face", {method:"DELETE"}); facePage(); } catch(e){ toast(e.message); } }
 
+/* ---------------- settings ---------------- */
+async function settingsPage(){
+  clearInterval(timer); sticky.innerHTML = "";
+  const s = await api("/settings");
+  app.innerHTML = header(true) + `<div class="card"><h2>Email when a Short is ready</h2>
+    <div class="small muted">Get an email when a Short finishes or fails, so you don't have to keep checking.</div>
+    <label class="toggle"><input type="checkbox" id="s_on" ${s.notify_on?"checked":""}> Send me emails</label>
+    <label class="lbl">Send emails to</label><input id="s_to" type="email" value="${esc(s.notify_email)}" placeholder="you@gmail.com">
+    <label class="lbl">Send from (your Gmail address)</label><input id="s_user" type="email" value="${esc(s.gmail_user)}" placeholder="you@gmail.com">
+    <label class="lbl">Gmail app password ${s.has_password?"(saved - leave empty to keep it)":""}</label>
+    <input id="s_pw" type="password" placeholder="16-letter app password" autocomplete="new-password">
+    <div class="small muted" style="margin-top:8px">Not your normal password. Create one at
+      <a href="https://myaccount.google.com/apppasswords" target="_blank">myaccount.google.com/apppasswords</a>
+      (needs 2-Step Verification on). It's stored privately in your own cloud storage.</div>
+    <div class="row" style="margin-top:16px"><button class="ghost" style="flex:1" id="s_test">Send test email</button>
+      <button class="primary" style="flex:1" id="s_save">Save</button></div></div>`;
+  const save = () => api("/settings", {method:"PUT", body:{notify_on:$("#s_on").checked, notify_email:$("#s_to").value,
+      gmail_user:$("#s_user").value, gmail_app_password:$("#s_pw").value, app_url:location.origin}});
+  $("#s_save").onclick = async () => { try { await save(); toast("Saved"); settingsPage(); } catch(e){ toast(e.message); } };
+  $("#s_test").onclick = async () => { $("#s_test").disabled = true;
+    try { await save(); await api("/settings/test", {method:"POST"}); toast("Test email sent - check your inbox", 4000); }
+    catch(e){ toast(e.message, 5000); } $("#s_test").disabled = false; };
+}
+
 /* ---------------- router ---------------- */
 async function route(){
   const h = location.hash.replace(/^#/, "") || "/";
   try { CFG = CFG || await api("/config"); } catch(e){ return; }
   const m = h.match(/^\/job\/([\w-]+)/);
   if (h.startsWith("/face")) return facePage();
+  if (h.startsWith("/settings")) return settingsPage();
   m ? jobPage(m[1]) : home();
 }
 window.onhashchange = route;

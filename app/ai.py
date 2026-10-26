@@ -18,6 +18,39 @@ from . import config as C
 
 FAKE = os.environ.get("FAKE_AI") == "1"
 
+# ---------------------------------------------------------------- usage meter (for the credit tracker)
+USAGE = {"text": 0, "image": 0, "video_s": 0.0, "tts_chars": 0}
+_ulock = threading.Lock()
+
+
+def _meter(key, amount=1):
+    with _ulock:
+        USAGE[key] += amount
+
+
+def usage_take():
+    """Return usage since the last call and reset the counters."""
+    with _ulock:
+        u = dict(USAGE)
+        for k in USAGE:
+            USAGE[k] = 0 if k != "video_s" else 0.0
+    return u
+
+
+def usage_rs(u):
+    return round(u.get("text", 0) * C.RS_TEXT + u.get("image", 0) * C.RS_IMAGE
+                 + u.get("video_s", 0) * C.RS_VIDEO_PER_S + u.get("tts_chars", 0) / 1000 * C.RS_TTS_PER_1K, 1)
+
+
+def _media_dur(path):
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                          "-of", "default=nw=1:nk=1", str(path)], capture_output=True, text=True).stdout
+    try:
+        return float(out.strip())
+    except ValueError:
+        return 0.0
+
+
 # ---------------------------------------------------------------- auth
 _creds = None
 _lock = threading.Lock()
@@ -80,6 +113,7 @@ def describe_person(photo_paths):
         return "a young man with thick wavy black hair swept up, a short full beard, dark brown eyes"
     parts = [{"inlineData": {"mimeType": _mime(p), "data": base64.b64encode(Path(p).read_bytes()).decode()}}
              for p in photo_paths]
+    _meter("text")
     prompt = ("These photos all show the same person. For a 3D character artist who must keep his likeness, describe "
               "ONLY his visible physical features: face shape, skin tone, hair (style, length, texture, colour), facial "
               "hair, eyebrows, eyes, nose, build. Do not mention clothes, accessories, background, names or guesses "
@@ -90,6 +124,7 @@ def describe_person(photo_paths):
 
 
 def text_json(prompt, temperature=0.9):
+    _meter("text")
     if FAKE:
         return _fake_text(prompt)
     resp = gemini(C.TEXT_MODEL_ID, prompt, {"responseMimeType": "application/json", "temperature": temperature})
@@ -100,6 +135,7 @@ def text_json(prompt, temperature=0.9):
 
 def image(prompt, out_path, refs=None):
     """refs: list of (label, image_path) identity/composition references."""
+    _meter("image")
     if FAKE:
         return _fake_image(prompt, out_path)
     extra = []
@@ -149,7 +185,9 @@ def _extract_video(js):
 
 def video(prompt, img_path, out_path):
     if FAKE:
-        return _fake_video(out_path)
+        _fake_video(out_path)
+        _meter("video_s", _media_dur(out_path))
+        return
     url = INTERACT_URL.format(p=C.PROJECT)
     b64 = base64.b64encode(Path(img_path).read_bytes()).decode() if img_path else None
     variants = [None] if not b64 else (
@@ -174,6 +212,7 @@ def video(prompt, img_path, out_path):
         if not data:
             raise RuntimeError("no video in response: " + json.dumps(js)[:300])
         Path(out_path).write_bytes(data)
+        _meter("video_s", _media_dur(out_path))
         if part and _img_fmt["idx"] is None:
             _img_fmt["idx"] = _image_variants(b64).index(part)
         return
@@ -181,18 +220,103 @@ def video(prompt, img_path, out_path):
 
 
 # ---------------------------------------------------------------- voice
-def voice(text, mp3_path):
-    """Returns word timings [(start, end, word)] relative to the clip."""
+TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize"
+
+
+def voice(text, mp3_path, voice_id=None):
+    """Narrate one shot. Returns word timings [(start, end, word)] for the captions.
+    voice_id: "gemini:<Name>" (Google Gemini TTS) or "edge:<edge voice>" (free Microsoft voice)."""
+    voice_id = voice_id or C.DEFAULT_VOICE
     if FAKE:
         return _fake_voice(text, mp3_path)
+    if voice_id.startswith("gemini:"):
+        try:
+            return _gemini_voice(text, mp3_path, voice_id.split(":", 1)[1])
+        except Exception as e:
+            print("Gemini voice failed, using the free voice instead:", str(e)[:200], flush=True)
+            voice_id = "edge:" + C.VOICE
+    return _edge_voice(text, mp3_path, voice_id.split(":", 1)[1] if ":" in voice_id else C.VOICE)
+
+
+def _gemini_voice(text, mp3_path, name):
+    h = dict(_headers(), **{"x-goog-user-project": C.PROJECT})
+    body = {"input": {"prompt": C.TTS_STYLE, "text": text},
+            "voice": {"languageCode": "en-US", "name": name, "modelName": C.TTS_MODEL},
+            "audioConfig": {"audioEncoding": "MP3"}}
+    last = None
+    for attempt in range(4):
+        r = requests.post(TTS_URL, headers=h, json=body, timeout=120)
+        if r.status_code == 429 or r.status_code >= 500:
+            last = r.text[:200]
+            time.sleep(5 * (attempt + 1))
+            continue
+        if not r.ok:
+            raise RuntimeError(f"{r.status_code}: {r.text[:300]}")
+        Path(mp3_path).write_bytes(base64.b64decode(r.json()["audioContent"]))
+        _meter("tts_chars", len(text))
+        return align_words(text, mp3_path)
+    raise RuntimeError("TTS busy: " + (last or ""))
+
+
+def _silences(path):
+    out = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(path), "-af", "silencedetect=noise=-35dB:d=0.12",
+                          "-f", "null", "-"], capture_output=True, text=True).stderr
+    starts = [float(x.split("silence_start:")[1].split()[0]) for x in out.splitlines() if "silence_start:" in x]
+    ends = [float(x.split("silence_end:")[1].split()[0]) for x in out.splitlines() if "silence_end:" in x]
+    return list(zip(starts, ends + [None] * (len(starts) - len(ends))))
+
+
+def align_words(text, mp3_path):
+    """Word timings without a timing API: find the pauses between phrases, then share each phrase's time
+    between its words by length. Accurate enough for word-by-word captions."""
+    import re
+    dur = _media_dur(mp3_path) or 1.0
+    sil = _silences(mp3_path)
+    t0, t1 = 0.0, dur
+    if sil and sil[0][0] <= 0.1 and sil[0][1]:
+        t0 = sil[0][1]
+        sil = sil[1:]
+    if sil and (sil[-1][1] is None or sil[-1][1] >= dur - 0.2):
+        t1 = sil[-1][0]
+        sil = sil[:-1]
+    phrases = [ph.split() for ph in re.split(r"(?<=[.,!?;:\u2014])\s+", text.strip()) if ph.split()]
+    weights = [sum(len(w) + 1 for w in ph) for ph in phrases]
+    total = sum(weights) or 1
+    # expected boundary times, then snap each to the nearest unused pause
+    bounds, acc = [], 0
+    mids = [(a + b) / 2 for a, b in sil if b]
+    for wgt in weights[:-1]:
+        acc += wgt
+        exp = t0 + (t1 - t0) * acc / total
+        if mids:
+            best = min(mids, key=lambda m: abs(m - exp))
+            if abs(best - exp) < max(0.6, 0.18 * (t1 - t0)) and (not bounds or best > bounds[-1]):
+                bounds.append(best)
+                mids.remove(best)
+                continue
+        bounds.append(exp)
+    edges = [t0] + bounds + [t1]
+    words = []
+    for k, ph in enumerate(phrases):
+        a, b = edges[k], edges[k + 1]
+        lens = [len(w) + 1 for w in ph]
+        tot, cur = sum(lens), a
+        for w, L in zip(ph, lens):
+            nxt = cur + (b - a) * L / tot
+            words.append((cur, cur + (nxt - cur) * 0.92, w))
+            cur = nxt
+    return words
+
+
+def _edge_voice(text, mp3_path, edge_voice):
     import edge_tts
 
     async def run():
         words = []
         try:
-            comm = edge_tts.Communicate(text, C.VOICE, rate=C.VOICE_RATE, boundary="WordBoundary")
+            comm = edge_tts.Communicate(text, edge_voice, rate=C.VOICE_RATE, boundary="WordBoundary")
         except TypeError:                      # older edge-tts versions emit word boundaries by default
-            comm = edge_tts.Communicate(text, C.VOICE, rate=C.VOICE_RATE)
+            comm = edge_tts.Communicate(text, edge_voice, rate=C.VOICE_RATE)
         with open(mp3_path, "wb") as f:
             async for chunk in comm.stream():
                 if chunk["type"] == "audio":
@@ -204,14 +328,7 @@ def voice(text, mp3_path):
     for attempt in range(3):
         try:
             words = asyncio.run(run())
-            if not words:                      # no timings: spread words evenly over the audio
-                out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                                      "-of", "default=nw=1:nk=1", str(mp3_path)], capture_output=True, text=True)
-                dur = float(out.stdout.strip() or 1)
-                ws = text.split()
-                step = dur / max(1, len(ws))
-                words = [(k * step, (k + 1) * step * 0.95, w) for k, w in enumerate(ws)]
-            return words
+            return words or align_words(text, mp3_path)
         except Exception:
             if attempt == 2:
                 raise

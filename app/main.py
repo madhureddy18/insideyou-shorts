@@ -77,22 +77,29 @@ def _trigger(jid, step, st, arg=""):
     st["prev_stage"] = st.get("stage") if st.get("stage") not in engine.RUNNING_STAGES else st.get("prev_stage")
     _save_state(jid, st, stage="queued", status="Starting...", error=None, run_id=secrets.token_hex(6),
                 execution=None)
-    args = ["-m", "app.worker", jid, step] + ([arg] if arg else [])
+    try:
+        execution = _start_worker(jid, step, arg)
+    except HTTPException as e:
+        _save_state(jid, st, stage=st.get("prev_stage") or "failed", run_id=None, error=str(e.detail)[:200])
+        raise
+    if execution:
+        fresh = store.read_json(f"jobs/{jid}/state.json") or st
+        _save_state(jid, fresh, execution=execution)
+
+
+def _start_worker(jid, step, arg=""):
+    """Run a step in the background: a Cloud Run Job execution in production, a thread locally."""
     if RUN_MODE != "cloudrun":
         threading.Thread(target=engine.run, args=(store, jid, step, arg), daemon=True).start()
-        return
+        return None
     from .ai import _headers
+    args = ["-m", "app.worker", jid, step] + ([arg] if arg else [])
     url = (f"https://run.googleapis.com/v2/projects/{C.PROJECT}/locations/{REGION}/jobs/{WORKER_JOB}:run")
     r = requests.post(url, headers=_headers(),
                       json={"overrides": {"containerOverrides": [{"args": args}]}}, timeout=60)
     if not r.ok:
-        _save_state(jid, st, stage=st.get("prev_stage") or "failed", run_id=None,
-                    error=f"Could not start worker: {r.status_code}")
         raise HTTPException(500, f"Could not start worker: {r.status_code} {r.text[:300]}")
-    execution = (r.json().get("metadata") or {}).get("name")
-    if execution:
-        fresh = store.read_json(f"jobs/{jid}/state.json") or st
-        _save_state(jid, fresh, execution=execution)
+    return (r.json().get("metadata") or {}).get("name")
 
 
 def _busy(st):
@@ -122,14 +129,20 @@ def _save_state(jid, st, **kw):
 @app.get("/api/config")
 def config():
     used = engine.brand_used(store)
+    sp = store.read_json("brand/spend.json") or {"total_rs": 0, "months": {}}
     return {"topics": [{"topic": t, "used": t in used} for t in C.TOPIC_BANK],
             "rs_per_shot": C.RS_PER_ANIMATED_SHOT, "rs_base": C.RS_BASE,
-            "has_hero": store.read_bytes(C.HERO_FACE_KEY) is not None}
+            "has_hero": store.read_bytes(C.HERO_FACE_KEY) is not None,
+            "voices": [{"id": v, "label": l} for v, l in C.VOICES], "default_voice": C.DEFAULT_VOICE,
+            "spend": {"total_rs": sp.get("total_rs", 0), "month_rs": sp["months"].get(time.strftime("%Y-%m"), 0),
+                      "credits_start_rs": C.CREDITS_START_RS,
+                      "left_rs": round(C.CREDITS_START_RS - sp.get("total_rs", 0), 1)}}
 
 
 class NewJob(BaseModel):
     topic: str = ""
     script_text: str = ""
+    voice: str = ""
     animate: str = "all"
     num_shots: int = 7
     auto: bool = False
@@ -146,13 +159,49 @@ def create(body: NewJob):
         raise HTTPException(400, "Your script is too long for a Short (max ~600 words)")
     jid = engine.new_job_id()
     st = {"id": jid, "created": engine.now(), "topic": body.topic.strip(), "script_text": script_text,
-          "animate": body.animate,
+          "animate": body.animate, "voice": _voice(body.voice),
           "num_shots": max(4, min(9, body.num_shots)), "auto": body.auto, "stage": "queued",
           "status": "Starting...", "logs": [], "clips": {}, "images": [],
           "estimate_rs": engine.estimate_rs(body.num_shots, body.animate)}
     _save_state(jid, st)
     _trigger(jid, "auto" if body.auto else "script", st)
     return st
+
+
+def _voice(v):
+    return v if v in [x for x, _ in C.VOICES] else C.DEFAULT_VOICE
+
+
+class BatchReq(BaseModel):
+    count: int = 3
+    animate: str = "all"
+    num_shots: int = 7
+    voice: str = ""
+
+
+@app.post("/api/batch")
+def batch(body: BatchReq):
+    """Make several Shorts on fresh topics, fully automatic, one after another."""
+    import random
+    import secrets
+    if body.animate not in ("all", "hook", "none") or not 2 <= body.count <= 5:
+        raise HTTPException(400, "Choose 2 to 5 Shorts")
+    used = engine.brand_used(store)
+    busy_topics = {(store.read_json(f"jobs/{j}/state.json") or {}).get("topic") for j in store.list_dirs("jobs/")[-40:]}
+    fresh = [t for t in C.TOPIC_BANK if t not in used and t not in busy_topics] or C.TOPIC_BANK
+    topics = random.sample(fresh, min(body.count, len(fresh)))
+    ids = []
+    for k, t in enumerate(topics, 1):
+        jid = engine.new_job_id() + str(k)
+        st = {"id": jid, "created": engine.now(), "topic": t, "script_text": "", "animate": body.animate,
+              "voice": _voice(body.voice), "num_shots": max(4, min(9, body.num_shots)), "auto": True,
+              "batch": True, "stage": "waiting", "status": f"Waiting in batch ({k} of {len(topics)})", "logs": [],
+              "clips": {}, "images": [], "run_id": secrets.token_hex(6),
+              "estimate_rs": engine.estimate_rs(body.num_shots, body.animate)}
+        _save_state(jid, st)
+        ids.append(jid)
+    _start_worker("BATCH", "batch", ",".join(ids))
+    return {"ids": ids, "topics": topics}
 
 
 @app.get("/api/jobs")
@@ -216,6 +265,8 @@ def run_step(jid: str, body: StepReq):
         sc = store.read_json(f"jobs/{jid}/script.json") or {"shots": []}
         if len(st.get("images") or []) < len(sc["shots"]):
             raise HTTPException(400, "Some images are missing - redo them first")
+        if body.shots and any(not 1 <= k <= len(sc["shots"]) for k in body.shots):
+            raise HTTPException(400, "bad shot number")
     arg = ",".join(str(i) for i in (body.shots or []))
     _trigger(jid, body.step, st, arg)
     return {"ok": True}
@@ -225,9 +276,12 @@ def run_step(jid: str, body: StepReq):
 def cancel(jid: str):
     """Stop the running step right away and go back to the last review screen."""
     st = _state(jid)
+    if st.get("stage") == "waiting":                # still waiting in a batch: just skip it
+        _save_state(jid, st, stage="cancelled", run_id=None, status="Cancelled")
+        return {"ok": True, "stage": "cancelled"}
     if st.get("stage") not in engine.RUNNING_STAGES:
         raise HTTPException(400, "Nothing is running")
-    if RUN_MODE == "cloudrun" and st.get("execution"):
+    if RUN_MODE == "cloudrun" and st.get("execution") and not st.get("batch"):
         from .ai import _headers
         try:
             requests.post(f"https://run.googleapis.com/v2/{st['execution']}:cancel", headers=_headers(), timeout=30)
@@ -283,6 +337,52 @@ def hero():
     if not data:
         raise HTTPException(404)
     return Response(data, media_type="image/png", headers={"Cache-Control": "no-cache"})
+
+
+# ------------------------------------------------------------------ settings (email notifications)
+class Settings(BaseModel):
+    notify_on: bool = False
+    notify_email: str = ""
+    gmail_user: str = ""
+    gmail_app_password: str = ""      # empty = keep the saved one
+    app_url: str = ""
+
+
+@app.get("/api/settings")
+def get_settings():
+    s = store.read_json("brand/settings.json") or {}
+    return {"notify_on": s.get("notify_on", False), "notify_email": s.get("notify_email", ""),
+            "gmail_user": s.get("gmail_user", ""), "has_password": bool(s.get("gmail_app_password")),
+            "app_url": s.get("app_url", "")}
+
+
+@app.put("/api/settings")
+def put_settings(body: Settings, request: Request):
+    s = store.read_json("brand/settings.json") or {}
+    s.update(notify_on=body.notify_on, notify_email=body.notify_email.strip(), gmail_user=body.gmail_user.strip(),
+             app_url=body.app_url.strip() or str(request.base_url).rstrip("/").replace("http://", "https://"))
+    if body.gmail_app_password.strip():
+        s["gmail_app_password"] = body.gmail_app_password.strip()
+    store.write_json("brand/settings.json", s)
+    return get_settings()
+
+
+@app.post("/api/settings/test")
+def test_email():
+    class _J:                                          # minimal stand-in job for the test email
+        id = "test"
+        state = {"title": "Test email from InsideYou Studio"}
+    s = store.read_json("brand/settings.json") or {}
+    if not (s.get("notify_email") and s.get("gmail_user") and s.get("gmail_app_password")):
+        raise HTTPException(400, "Fill in all email fields first")
+    import smtplib
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as sm:
+            sm.login(s["gmail_user"], s["gmail_app_password"].replace(" ", ""))
+    except Exception as e:
+        raise HTTPException(400, f"Gmail login failed: {str(e)[:150]}")
+    engine.notify(store, _J, ok=True, force=True)
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ My Face (use your own face as the mascot)

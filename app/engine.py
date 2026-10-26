@@ -133,6 +133,8 @@ Rules:
   drawn identically in every shot. Background crowds don't need to be in the cast.
 - For each shot list exactly which cast names appear in "characters" ([] for pure close-ups/cross-sections
   with no recognizable person). Characters can enter and leave between shots.
+- ONE IDEA PER SHOT: each shot shows a single clear subject - never split screens, collages, side-by-side
+  panels or several unrelated things crammed into one frame. Vary camera angles between shots.
 - image_prompt: describe ONE clear visual (subject, camera angle, what is highlighted/glowing, what each
   listed character is doing). Inside-the-body cross-sections are welcome. No captions or random text.
 - BRANDING (like Zack D Films signs his scenes): the brand name is "{C.BRAND_TEXT}". It is already printed on
@@ -366,17 +368,39 @@ def _video_prompt(s, secs):
             f"not changing. Do not add any other text, captions or logos. No people talking.")
 
 
-def step_video(job: Job):
-    sc = job.script()
-    n = len(sc["shots"])
-    job.save(stage="animating", clips=job.state.get("clips") or {})
-    job.log("Recording narration...")
+def _narrate(job, sc):
+    """Record narration per shot; reuse a recording when the line and voice haven't changed."""
+    vid = job.state.get("voice") or C.DEFAULT_VOICE
     words = {}
     for i, s in enumerate(sc["shots"], 1):
-        words[i] = ai.voice(s["narration"], job.dir / f"voice_{i:02d}.mp3")
-    animate = job.state.get("animate", "all")
-    targets = [] if animate == "none" else ([1] if animate == "hook" else list(range(1, n + 1)))
+        mp3, meta = job.dir / f"voice_{i:02d}.mp3", job.dir / f"voice_{i:02d}.json"
+        key = {"text": s["narration"], "voice": vid}
+        if _valid(mp3) and meta.exists():
+            m = json.loads(meta.read_text())
+            if m.get("key") == key:
+                words[i] = [tuple(w) for w in m["words"]]
+                continue
+        words[i] = ai.voice(s["narration"], mp3, vid)
+        meta.write_text(json.dumps({"key": key, "words": words[i]}))
+        job.put(mp3.name)
+        job.put(meta.name)
+    return words
+
+
+def step_video(job: Job, redo=None):
+    sc = job.script()
+    n = len(sc["shots"])
     clips = job.state.get("clips") or {}
+    if redo:                                  # redo only these clips, keep everything else
+        for i in redo:
+            (job.dir / f"omni_{i:02d}.mp4").unlink(missing_ok=True)
+            job.store.delete(job.prefix + f"omni_{i:02d}.mp4")
+            clips[str(i)] = "waiting"
+    job.save(stage="animating", clips=clips)
+    job.log("Recording narration...")
+    words = _narrate(job, sc)
+    animate = job.state.get("animate", "all")
+    targets = redo or ([] if animate == "none" else ([1] if animate == "hook" else list(range(1, n + 1))))
 
     def do_clip(i):
         s = sc["shots"][i - 1]
@@ -450,18 +474,49 @@ def step_video(job: Job):
 STEPS = {"script": step_script, "images": step_images, "video": step_video}
 
 
+def _record_spend(store, jid, u):
+    """Add this run's metered cost to the job and to the monthly totals."""
+    rs = ai.usage_rs(u)
+    if rs <= 0:
+        return 0
+    st = store.read_json(f"jobs/{jid}/state.json") or {}
+    st["spent_rs"] = round(st.get("spent_rs", 0) + rs, 1)
+    store.write_json(f"jobs/{jid}/state.json", st)
+    sp = store.read_json("brand/spend.json") or {"total_rs": 0, "months": {}}
+    m = time.strftime("%Y-%m")
+    sp["months"][m] = round(sp["months"].get(m, 0) + rs, 1)
+    sp["total_rs"] = round(sp.get("total_rs", 0) + rs, 1)
+    store.write_json("brand/spend.json", sp)
+    return rs
+
+
 def run(store: Store, jid: str, step: str, arg: str = ""):
+    if step == "batch":                       # arg = comma list of job ids, made one after another
+        for k, b in enumerate([x for x in arg.split(",") if x], 1):
+            st = store.read_json(f"jobs/{b}/state.json") or {}
+            if st.get("stage") != "waiting":  # cancelled or deleted while waiting
+                continue
+            st.update(stage="queued", status=f"Starting (batch {k})...")
+            store.write_json(f"jobs/{b}/state.json", st)
+            run(store, b, "auto")
+        return
     job = Job(store, jid)
+    ai.usage_take()
     try:
         job.pull()
+        nums = [int(x) for x in arg.split(",") if x.strip().isdigit()]
         if step == "auto":
             step_script(job)
             step_images(job)
             step_video(job)
-        elif step == "images" and arg:
-            step_images(job, redo=[int(x) for x in arg.split(",") if x.strip().isdigit()])
+        elif step == "images" and nums:
+            step_images(job, redo=nums)
+        elif step == "video" and nums:
+            step_video(job, redo=nums)
         else:
             STEPS[step](job)
+        if job.state.get("stage") == "done":
+            notify(store, job, ok=True)
     except Cancelled:
         print("cancelled by user", flush=True)
     except Exception as e:
@@ -469,7 +524,42 @@ def run(store: Store, jid: str, step: str, arg: str = ""):
         job.state.setdefault("logs", []).append(f"{time.strftime('%H:%M:%S')}  ERROR: {str(e)[:300]}")
         try:
             job.save(stage="failed", failed_step=step, error=str(e)[:500], status="Failed: " + str(e)[:150])
+            notify(store, job, ok=False)
         except Cancelled:
             pass
     finally:
+        try:
+            _record_spend(store, jid, ai.usage_take())
+        except Exception as e:
+            print("spend tracking failed:", e, flush=True)
         shutil.rmtree(job.dir, ignore_errors=True)
+
+
+# ====================================================================== email notifications
+def notify(store, job, ok=True, force=False):
+    """Email you when a Short is ready (or failed). Settings live in your private bucket (brand/settings.json)."""
+    cfg = store.read_json("brand/settings.json") or {}
+    to, user, pw = cfg.get("notify_email"), cfg.get("gmail_user"), cfg.get("gmail_app_password")
+    if not ((cfg.get("notify_on") or force) and to and user and pw):
+        return
+    import smtplib
+    from email.message import EmailMessage
+    st = job.state
+    title = st.get("title") or st.get("topic") or "Your Short"
+    msg = EmailMessage()
+    msg["From"], msg["To"] = user, to
+    if ok:
+        msg["Subject"] = f"✅ Ready: {title}"
+        body = f"Your Short \"{title}\" is ready.\n\nOpen the app to watch and download it."
+    else:
+        msg["Subject"] = f"❌ Failed: {title}"
+        body = f"Your Short \"{title}\" failed.\n\nError: {st.get('error', '')}\n\nOpen the app and tap Retry."
+    if cfg.get("app_url"):
+        body += f"\n\n{cfg['app_url'].rstrip('/')}/#/job/{job.id}"
+    msg.set_content(body)
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as s:
+            s.login(user, pw.replace(" ", ""))
+            s.send_message(msg)
+    except Exception as e:
+        print("email failed:", str(e)[:200], flush=True)

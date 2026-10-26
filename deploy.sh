@@ -21,7 +21,7 @@ IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/app:$(date +%Y%m%d-%H%M%S)"
 
 say "Enabling Google APIs (first time takes ~1 min)"
 gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com \
-  storage.googleapis.com aiplatform.googleapis.com iam.googleapis.com --quiet
+  storage.googleapis.com aiplatform.googleapis.com iam.googleapis.com texttospeech.googleapis.com --quiet
 
 say "Storage bucket for your Shorts"
 gcloud storage buckets describe "gs://${BUCKET}" >/dev/null 2>&1 || \
@@ -31,7 +31,7 @@ say "Service account the app runs as (no key files needed)"
 gcloud iam service-accounts describe "$SA" >/dev/null 2>&1 || \
   gcloud iam service-accounts create "$SA_NAME" --display-name="InsideYou Studio app" --quiet
 sleep 5
-for ROLE in roles/aiplatform.user roles/run.developer roles/logging.logWriter; do
+for ROLE in roles/aiplatform.user roles/run.developer roles/logging.logWriter roles/serviceusage.serviceUsageConsumer; do
   gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${SA}" --role="$ROLE" \
     --condition=None --quiet >/dev/null
 done
@@ -64,7 +64,7 @@ ENVS="PROJECT_ID=${PROJECT},BUCKET=${BUCKET},REGION=${REGION},WORKER_JOB=${JOB},
 
 say "Deploying the worker (does the heavy video work)"
 gcloud run jobs deploy "$JOB" --image "$IMAGE" --region "$REGION" --service-account "$SA" \
-  --command python --args="-m,app.worker" --task-timeout 3600 --max-retries 0 \
+  --command python --args="-m,app.worker" --task-timeout 21600 --max-retries 0 \
   --cpu 2 --memory 4Gi --set-env-vars "$ENVS" --quiet
 
 say "Deploying the web app"

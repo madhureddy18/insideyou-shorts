@@ -8,8 +8,29 @@ VIDEO_MODEL_ID = os.environ.get("VIDEO_MODEL_ID", "gemini-omni-1.1-flash-preview
 VOICE = os.environ.get("VOICE", 'en-US-AndrewNeural')
 VOICE_RATE = os.environ.get("VOICE_RATE", '+8%')
 VIDEO_WORKERS = int(os.environ.get("VIDEO_WORKERS", "3"))
-RS_PER_ANIMATED_SHOT = 55      # rough cost of one ~6s Omni clip at 720p
+RS_PER_ANIMATED_SHOT = 55      # rough cost of one ~6s Omni clip at 720p (for estimates before running)
 RS_BASE = 10                   # script + images + voice
+
+# Metered costs used by the credit tracker (approximate list prices, in rupees)
+RS_TEXT = 0.5                  # one Gemini text call (script / fact-check)
+RS_IMAGE = 3.5                 # one Nano Banana image
+RS_VIDEO_PER_S = 8.5           # one second of Gemini Omni 720p video
+RS_TTS_PER_1K = 1.5            # 1,000 characters of Gemini TTS
+CREDITS_START_RS = float(os.environ.get("CREDITS_START_RS", "28757"))
+
+# Narrator voices. "gemini:<Name>" = Google Gemini TTS (natural), "edge:<voice>" = free Microsoft voice
+TTS_MODEL = os.environ.get("TTS_MODEL", "gemini-2.5-flash-tts")
+TTS_STYLE = ("Read this like a calm, confident, fast-paced science explainer narrator for a viral short video. "
+             "Clear, warm and engaging, with natural emphasis and short pauses between sentences.")
+VOICES = [
+    ("gemini:Charon", "Charon - deep, calm male (recommended)"),
+    ("gemini:Puck", "Puck - upbeat, energetic male"),
+    ("gemini:Orus", "Orus - firm, confident male"),
+    ("gemini:Kore", "Kore - clear, confident female"),
+    ("gemini:Aoede", "Aoede - warm, friendly female"),
+    ("edge:en-US-AndrewNeural", "Andrew - free voice (lower quality)"),
+]
+DEFAULT_VOICE = os.environ.get("DEFAULT_VOICE", "gemini:Charon")
 
 BRAND_TEXT = os.environ.get("BRAND_TEXT", "VERSE FILMS")          # printed inside scenes (shirt, signs, labels)
 WATERMARK_TEXT = os.environ.get("WATERMARK_TEXT", "VERSE FILMS")  # small corner watermark on every video
