@@ -63,11 +63,40 @@ class Job:
             raise Cancelled()
 
     def save(self, **kw):
+        """Update state.json. Log-only updates are batched (GCS allows ~1 write/second per file);
+        real state changes are written straight away."""
         with self._lock:
             self.check()
             self.state.update(kw)
             self.state["updated"] = now()
+            if set(kw) - {"status"}:
+                self._flush()
+            elif not getattr(self, "_timer", None):
+                wait = max(0.0, 2.0 - (time.time() - getattr(self, "_last_write", 0)))
+                self._timer = threading.Timer(wait, self._timed_flush)
+                self._timer.daemon = True
+                self._timer.start()
+
+    def _timed_flush(self):
+        try:
+            with self._lock:
+                if getattr(self, "_timer", None):
+                    self.check()            # never overwrite a cancel or a newer run
+                    self._flush()
+        except Exception as e:
+            print("state save skipped:", str(e)[:120], flush=True)
+
+    def _flush(self):
+        with self._lock:
+            t = getattr(self, "_timer", None)
+            if t:
+                t.cancel()
+                self._timer = None
+            gap = time.time() - getattr(self, "_last_write", 0)
+            if gap < 1.1:
+                time.sleep(1.1 - gap)
             self.store.write_json(self.prefix + "state.json", self.state)
+            self._last_write = time.time()
 
     def log(self, msg):
         print(msg, flush=True)
@@ -638,6 +667,8 @@ def run(store: Store, jid: str, step: str, arg: str = ""):
         except Cancelled:
             pass
     finally:
+        if getattr(job, "_timer", None):
+            job._timed_flush()              # write the last log lines before the worker exits
         try:
             _record_spend(store, jid, ai.usage_take())
         except Exception as e:

@@ -28,10 +28,17 @@ class Store:
 
     def write_bytes(self, key, data, content_type="application/octet-stream"):
         if self.bucket_name:
-            blob = self._bucket.blob(key)
-            blob.cache_control = "no-cache"
-            blob.upload_from_string(data, content_type=content_type)
-            return
+            import time
+            for attempt in range(6):            # GCS allows ~1 write per second to the same file
+                try:
+                    blob = self._bucket.blob(key)
+                    blob.cache_control = "no-cache"
+                    blob.upload_from_string(data, content_type=content_type)
+                    return
+                except Exception as e:
+                    if "429" not in str(e) and "rate limit" not in str(e).lower() or attempt == 5:
+                        raise
+                    time.sleep(1.5 * (attempt + 1))
         p = self.root / key
         p.parent.mkdir(parents=True, exist_ok=True)
         tmp = p.with_suffix(p.suffix + ".tmp")
