@@ -10,7 +10,7 @@ from pathlib import Path
 
 import requests
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from . import config as C
@@ -392,11 +392,15 @@ def _prune_cache():
 
 
 @app.get("/api/jobs/{jid}/file/{name}")
-def file(jid: str, name: str, v: str = ""):
+def file(jid: str, name: str, request: Request, v: str = ""):
     if "/" in name or ".." in name or "/" in jid or ".." in jid:
         raise HTTPException(400)
     key = f"jobs/{jid}/{name}"
     download = v == "dl"
+    if name.endswith(".mp4"):          # videos: send the browser straight to storage (Cloud Run caps replies at 32 MB)
+        url = store.signed_url(key, download_name=f"{jid}.mp4" if download else None)
+        if url:
+            return RedirectResponse(url, status_code=302, headers={"Cache-Control": "no-store"})
     if download:                       # same cached copy as the player, named after the finished version
         st = store.read_json(f"jobs/{jid}/state.json") or {}
         v = str(st.get("final_at") or st.get("updated") or "")
@@ -411,7 +415,40 @@ def file(jid: str, name: str, v: str = ""):
     headers = {"Cache-Control": "private, max-age=31536000" if v and not download else "no-cache"}
     if name.endswith(".mp4") and download:
         headers["Content-Disposition"] = f'attachment; filename="{jid}.mp4"'
+    if name.endswith(".mp4"):
+        return _stream(local, request, headers)
     return FileResponse(local, headers=headers)
+
+
+def _stream(path, request, headers, chunk=1024 * 1024):
+    """Chunked video reply with seeking support - chunked replies aren't limited to 32 MB on Cloud Run."""
+    size = path.stat().st_size
+    start, end, status = 0, size - 1, 200
+    rng = request.headers.get("range", "")
+    mt = re.match(r"bytes=(\d*)-(\d*)", rng)
+    if mt:
+        if mt.group(1):
+            start = int(mt.group(1))
+            end = int(mt.group(2)) if mt.group(2) else size - 1
+        elif mt.group(2):
+            start = max(0, size - int(mt.group(2)))
+        end = min(end, size - 1)
+        status = 206
+        headers = dict(headers, **{"Content-Range": f"bytes {start}-{end}/{size}"})
+
+    def body():
+        with open(path, "rb") as f:
+            f.seek(start)
+            left = end - start + 1
+            while left > 0:
+                b = f.read(min(chunk, left))
+                if not b:
+                    break
+                left -= len(b)
+                yield b
+
+    return StreamingResponse(body(), status_code=status, media_type="video/mp4",
+                             headers=dict(headers, **{"Accept-Ranges": "bytes"}))
 
 
 @app.get("/api/brand/hero")

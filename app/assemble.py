@@ -224,7 +224,8 @@ def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="
     fc.append(f"[0:v]subtitles='{ass_arg}':fontsdir='{fd_arg}'[vout]")
     _run(["ffmpeg", "-y", "-i", str(joined), *bed_in, "-i", str(whoosh),
           "-filter_complex", ";".join(fc), "-map", "[vout]", "-map", "[aout]",
-          "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-pix_fmt", "yuv420p",
+          "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-maxrate", "7M", "-bufsize", "14M",
+          "-pix_fmt", "yuv420p",
           "-c:a", "aac", "-b:a", "192k", "-t", f"{t0:.3f}", "-movflags", "+faststart", str(out_path)])
     print(f"  total: {t0:.1f}s")
     return out_path

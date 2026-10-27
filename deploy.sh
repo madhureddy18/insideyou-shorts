@@ -21,7 +21,8 @@ IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/app:$(date +%Y%m%d-%H%M%S)"
 
 say "Enabling Google APIs (first time takes ~1 min)"
 gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com \
-  storage.googleapis.com aiplatform.googleapis.com iam.googleapis.com texttospeech.googleapis.com youtube.googleapis.com --quiet
+  storage.googleapis.com aiplatform.googleapis.com iam.googleapis.com texttospeech.googleapis.com youtube.googleapis.com \
+  iamcredentials.googleapis.com --quiet
 
 say "Storage bucket for your Shorts"
 gcloud storage buckets describe "gs://${BUCKET}" >/dev/null 2>&1 || \
@@ -39,6 +40,8 @@ gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" --member="service
   --role=roles/storage.objectAdmin --quiet >/dev/null
 gcloud iam service-accounts add-iam-policy-binding "$SA" --member="serviceAccount:${SA}" \
   --role=roles/iam.serviceAccountUser --quiet >/dev/null
+gcloud iam service-accounts add-iam-policy-binding "$SA" --member="serviceAccount:${SA}" \
+  --role=roles/iam.serviceAccountTokenCreator --quiet >/dev/null   # signed links for playing/downloading videos
 
 say "Letting Cloud Build build the container"
 BUILD_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
@@ -60,7 +63,7 @@ current_env(){  # read an env var from the already-deployed app (so re-deploys k
 APP_PASSWORD="${APP_PASSWORD:-$(current_env APP_PASSWORD)}"   # optional: no password = no login screen
 APP_SECRET="${APP_SECRET:-$(current_env APP_SECRET)}"
 APP_SECRET="${APP_SECRET:-$(python3 -c 'import secrets;print(secrets.token_hex(24))')}"
-ENVS="PROJECT_ID=${PROJECT},BUCKET=${BUCKET},REGION=${REGION},WORKER_JOB=${JOB},RUN_MODE=cloudrun"
+ENVS="PROJECT_ID=${PROJECT},BUCKET=${BUCKET},APP_SA=${SA},REGION=${REGION},WORKER_JOB=${JOB},RUN_MODE=cloudrun"
 
 say "Deploying the worker (does the heavy video work)"
 gcloud run jobs deploy "$JOB" --image "$IMAGE" --region "$REGION" --service-account "$SA" \

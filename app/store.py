@@ -102,6 +102,33 @@ class Store:
         tmp.replace(path)
         return True
 
+    def signed_url(self, key, minutes=120, download_name=None):
+        """Direct, temporary link to a file in the bucket (big videos never pass through the app).
+        None when signing isn't possible (local dev, or the permission isn't granted yet)."""
+        if not self.bucket_name:
+            return None
+        try:
+            import datetime
+            import google.auth
+            from google.auth.transport.requests import Request
+            creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+            creds.refresh(Request())
+            sa = os.environ.get("APP_SA") or getattr(creds, "service_account_email", None)
+            if not sa or sa == "default":
+                return None
+            blob = self._bucket.blob(key)
+            if not blob.exists():
+                return None
+            kw = {}
+            if download_name:
+                kw["response_disposition"] = f'attachment; filename="{download_name}"'
+            return blob.generate_signed_url(version="v4", expiration=datetime.timedelta(minutes=minutes),
+                                            method="GET", service_account_email=sa,
+                                            access_token=creds.token, **kw)
+        except Exception as e:
+            print("signed link failed, streaming instead:", str(e)[:200], flush=True)
+            return None
+
     def download_prefix(self, prefix, dest):
         dest = Path(dest)
         dest.mkdir(parents=True, exist_ok=True)
