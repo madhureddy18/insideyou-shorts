@@ -50,7 +50,7 @@ def _valid_token(t):
 @app.middleware("http")
 async def auth(request: Request, call_next):
     p = request.url.path
-    if PASSWORD and p.startswith("/api/") and p != "/api/login":
+    if PASSWORD and p.startswith("/api/") and p not in ("/api/login", "/api/instagram/tick"):
         if not _valid_token(request.cookies.get("iy", "")):
             return JSONResponse({"detail": "login required"}, status_code=401)
     return await call_next(request)
@@ -139,6 +139,8 @@ def config():
             "default_look": C.DEFAULT_LOOK,
             "yt_connected": bool((store.read_json("brand/youtube.json") or {}).get("refresh_token")),
             "yt_channel": (store.read_json("brand/youtube.json") or {}).get("channel_title", ""),
+            "ig_connected": bool((store.read_json("brand/instagram.json") or {}).get("token")),
+            "ig_username": (store.read_json("brand/instagram.json") or {}).get("username", ""),
             "spend": {"total_rs": sp.get("total_rs", 0), "month_rs": sp["months"].get(time.strftime("%Y-%m"), 0),
                       "credits_start_rs": C.CREDITS_START_RS,
                       "left_rs": round(C.CREDITS_START_RS - sp.get("total_rs", 0), 1)}}
@@ -222,7 +224,7 @@ def list_jobs():
         st = store.read_json(f"jobs/{jid}/state.json")
         if st:
             out.append({k: st.get(k) for k in ("id", "created", "updated", "topic", "title", "stage", "status",
-                                                "animate", "images", "youtube")})
+                                                "animate", "images", "youtube", "instagram")})
     return out
 
 
@@ -570,6 +572,114 @@ def yt_schedule_all(body: YTScheduleAll):
         plan.append(f"{jid}@{when}")
     _start_worker("YT", "ytbatch", ",".join(plan))
     return {"count": len(plan), "plan": [p.split("@", 1)[1] for p in plan]}
+
+
+# ------------------------------------------------------------------ Instagram (Reels auto-posting, free)
+from . import instagram as IG
+
+
+@app.get("/api/instagram")
+def ig_status():
+    return IG.status(store)
+
+
+class IGToken(BaseModel):
+    token: str = ""
+
+
+@app.put("/api/instagram/token")
+def ig_token(body: IGToken):
+    try:
+        return IG.connect(store, body.token)
+    except Exception as e:
+        raise HTTPException(400, str(e)[:300])
+
+
+class IGSettings(BaseModel):
+    auto: bool | None = None
+    time: str = ""
+
+
+@app.put("/api/instagram/settings")
+def ig_settings(body: IGSettings):
+    if body.time and not re.fullmatch(r"\d{2}:\d{2}", body.time):
+        raise HTTPException(400, "Time must look like 19:00")
+    return IG.settings(store, body.auto, body.time or None)
+
+
+@app.post("/api/instagram/disconnect")
+def ig_disconnect():
+    IG.disconnect(store)
+    return IG.status(store)
+
+
+class IGPost(BaseModel):
+    mode: str = "now"             # now | schedule | cancel
+    at: str = ""                  # ISO time with offset, for schedule
+
+
+@app.post("/api/jobs/{jid}/instagram")
+def ig_post(jid: str, body: IGPost):
+    st = _state(jid)
+    cur = st.get("instagram") or {}
+    if body.mode == "cancel":
+        if cur.get("status") == "scheduled":
+            _save_state(jid, st, instagram={})
+        return {"ok": True}
+    if st.get("stage") != "done":
+        raise HTTPException(400, "Finish the video first")
+    if not IG.status(store)["connected"]:
+        raise HTTPException(400, "Connect Instagram in Settings first")
+    if cur.get("status") == "posting":
+        raise HTTPException(409, "Already posting")
+    if body.mode == "schedule":
+        if not body.at:
+            raise HTTPException(400, "Pick a time")
+        _save_state(jid, st, instagram={"status": "scheduled", "at": body.at})
+        return {"ok": True}
+    _save_state(jid, st, instagram={"status": "posting", "started": engine.now()})
+    _start_worker(jid, "instagram")
+    return {"ok": True}
+
+
+class IGScheduleAll(BaseModel):
+    time: str = "19:00"
+
+
+@app.post("/api/instagram/schedule-all")
+def ig_schedule_all(body: IGScheduleAll):
+    """Every finished Short not on Instagram yet: one per day at the chosen time (India time)."""
+    if not IG.status(store)["connected"]:
+        raise HTTPException(400, "Connect Instagram in Settings first")
+    IG.settings(store, None, body.time)
+    plan = []
+    for jid in sorted(store.list_dirs("jobs/")):
+        st = store.read_json(f"jobs/{jid}/state.json") or {}
+        if st.get("stage") == "done" and (st.get("instagram") or {}).get("status") not in (
+                "posted", "posting", "scheduled"):
+            at = IG.next_slot(store, engine.ig_taken(store))
+            _save_state(jid, st, instagram={"status": "scheduled", "at": at})
+            plan.append(at)
+    if not plan:
+        raise HTTPException(400, "No finished Shorts waiting for Instagram")
+    return {"count": len(plan), "plan": plan}
+
+
+@app.get("/api/instagram/tick")
+def ig_tick(key: str = ""):
+    """Called every 10 minutes by Cloud Scheduler: posts whatever is due."""
+    if not hmac.compare_digest(key, _sign("ig-tick")):
+        raise HTTPException(403)
+    due = []
+    for jid in store.list_dirs("jobs/"):
+        st = store.read_json(f"jobs/{jid}/state.json") or {}
+        ig = st.get("instagram") or {}
+        if ig.get("status") == "scheduled" and IG.is_due(ig.get("at", "")):
+            _save_state(jid, st, instagram=dict(ig, status="posting", started=engine.now()))
+            due.append(jid)
+    if due:
+        _start_worker("IG", "igbatch", ",".join(due))
+    return {"posting": due}
 
 
 # ------------------------------------------------------------------ settings (email notifications)

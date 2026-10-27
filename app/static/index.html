@@ -242,7 +242,7 @@ async function home(){
       <a class="item" href="#/job/${j.id}">
         ${(j.images||[]).length?`<img loading="lazy" src="${file(j.id,"shot_01.png",j.updated)}" alt="">`:`<div class="ph"></div>`}
         <div style="min-width:0;flex:1"><div class="t">${esc(j.title||j.topic||"Picking a topic…")}</div>
-        <div class="muted small">${esc((j.created||"").replace("T"," ").slice(0,16))}${(j.youtube||{}).status==="uploaded"?" · ▶ on YouTube":(j.youtube||{}).status==="uploading"?" · ▶ uploading…":""}</div></div>${chip(j.stage)}</a>`).join("")
+        <div class="muted small">${esc((j.created||"").replace("T"," ").slice(0,16))}${(j.youtube||{}).status==="uploaded"?" · ▶ on YouTube":(j.youtube||{}).status==="uploading"?" · ▶ uploading…":""}${(j.instagram||{}).status==="posted"?" · 📸 on Instagram":(j.instagram||{}).status==="scheduled"?" · 📸 scheduled":(j.instagram||{}).status==="posting"?" · 📸 posting…":""}</div></div>${chip(j.stage)}</a>`).join("")
       : `<div class="muted small">No Shorts yet - create your first one above.</div>`;
   } catch(e){}
 }
@@ -253,7 +253,7 @@ async function jobPage(id){
   let lastKey = "";
   const load = async () => {
     let d; try { d = await api("/jobs/"+id); } catch(e){ if(e.message!=="login") app.innerHTML=header(true)+`<div class="card">${esc(e.message)}</div>`; return; }
-    const st = d.state, key = st.stage+"|"+st.updated+"|"+JSON.stringify(st.youtube||{});
+    const st = d.state, key = st.stage+"|"+st.updated+"|"+JSON.stringify(st.youtube||{})+JSON.stringify(st.instagram||{});
     if (key === lastKey) return;
     const v = document.querySelector("video"); if (v && !v.paused) return;   // don't interrupt playback
     if (document.activeElement && /^seo_/.test(document.activeElement.id || "")) return;  // don't wipe SEO edits
@@ -340,6 +340,7 @@ function render(d){
         <a href="${file(id,"final.mp4","dl")}" download style="flex:1"><button class="primary" style="width:100%">Download video</button></a>
         <button class="ghost" style="flex:1" onclick="copyUpload()">Copy upload text</button></div>
       ${ytCard(st)}
+      ${igCard(st)}
       ${sc && sc.seo ? seoCard(st, sc.seo) : `<label class="lbl">Upload text</label><div class="copybox" id="upload">${esc(d.upload)}</div>`}
       <div class="small muted" style="margin-top:10px">Tip: when uploading, tick YouTube's "altered or synthetic content" box and Instagram's "AI info" label.</div></div>
       ${sc ? `<div class="card"><h3>Fix a shot</h3><div class="small muted" style="margin-bottom:10px">Not happy with one animation? Redo just that clip - the rest stays the same.</div>
@@ -436,6 +437,29 @@ function copyUpload(){ navigator.clipboard.writeText(_uploadText).then(()=>toast
 function copyIG(){
   const txt = $("#seo_ig").value; navigator.clipboard.writeText(txt).then(()=>toast("Instagram caption copied"));
 }
+function igCard(st){
+  const g = st.instagram || {}, id = st.id;
+  if (g.status === "posting") return `<div class="row" style="margin-top:14px"><div class="spin"></div><span>Posting to Instagram… (takes 2-5 min)</span></div>`;
+  if (g.status === "posted") return `<div class="copybox" style="margin-top:14px">✅ On Instagram: ${g.url?`<a href="${esc(g.url)}" target="_blank">${esc(g.url)}</a>`:"posted"}</div>`;
+  if (g.status === "scheduled") return `<div class="copybox" style="margin-top:14px">📸 Instagram: posts automatically on <b>${esc(new Date(g.at).toLocaleString())}</b>
+    <div class="row" style="margin-top:8px"><button class="primary" style="flex:1" onclick="igPost('${id}','now')">Post now instead</button>
+    <button class="ghost" style="flex:1" onclick="igPost('${id}','cancel')">Cancel</button></div></div>`;
+  const fail = g.status === "failed" ? `<div class="small" style="color:var(--bad);margin-top:10px">Instagram post failed: ${esc(g.error)}</div>` : "";
+  if (!CFG || !CFG.ig_connected) return fail + `<div class="small muted" style="margin-top:14px">📸 Want auto-posting to Instagram? <a href="#/settings">Connect Instagram in Settings</a></div>`;
+  const t = new Date(Date.now()+864e5); t.setHours(19,0,0,0);
+  const local = new Date(t - t.getTimezoneOffset()*6e4).toISOString().slice(0,16);
+  return fail + `<div class="card" style="margin:14px 0 0;background:var(--bg)"><h3>📸 Post to Instagram${CFG.ig_username?` · @${esc(CFG.ig_username)}`:""}</h3>
+    <div class="row" style="margin-top:10px"><button class="primary" style="flex:1" onclick="igPost('${id}','now')">Post Reel now</button></div>
+    <div class="row" style="margin-top:10px"><input type="datetime-local" id="igAt" value="${local}" style="flex:1">
+      <button class="ghost" onclick="igPost('${id}','schedule')">Schedule</button></div></div>`;
+}
+async function igPost(id, mode){
+  let at = "";
+  if (mode === "schedule") { const v = $("#igAt").value; if (!v) return toast("Pick a time"); at = new Date(v).toISOString(); }
+  if (mode === "now" && !confirm("Post this Reel to Instagram now?")) return;
+  try { await api(`/jobs/${id}/instagram`, {method:"POST", body:{mode, at}});
+    toast(mode==="now"?"Posting to Instagram…":mode==="cancel"?"Cancelled":"Scheduled"); jobPage(id); } catch(e){ toast(e.message, 4000); }
+}
 function ytCard(st){
   const y = st.youtube || {}, id = st.id;
   if (y.status === "uploading") return `<div class="row" style="margin-top:14px"><div class="spin"></div><span>Uploading to YouTube…${y.planned?` (scheduled for ${esc(new Date(y.planned).toLocaleString())})`:""}</span></div>`;
@@ -522,7 +546,7 @@ async function faceReset(){ if (!confirm("Stop using your face and go back to th
 /* ---------------- settings ---------------- */
 async function settingsPage(){
   clearInterval(timer); sticky.innerHTML = "";
-  const s = await api("/settings"), y = await api("/youtube");
+  const s = await api("/settings"), y = await api("/youtube"), g = await api("/instagram");
   const ytMsg = (location.hash.split("yt=")[1] || ""); if (ytMsg === "ok") CFG = null;
   app.innerHTML = header(true) + `
   ${ytMsg ? `<div class="card small" style="color:${ytMsg==="ok"?"var(--ok)":"var(--bad)"}">${ytMsg==="ok"?"✅ YouTube connected!":"YouTube connect failed: "+esc(decodeURIComponent(ytMsg))}</div>` : ""}
@@ -546,6 +570,23 @@ async function settingsPage(){
       <div class="row" style="margin-top:14px"><button class="ghost" style="flex:1" id="y_save">Save</button>
         <button class="primary" style="flex:1" id="y_con" ${y.has_client?"":"disabled"}>Connect YouTube</button></div>`}
   </div>
+  <div class="card"><h2>📸 Instagram auto-posting</h2>
+    ${g.connected ? `<div class="row" style="margin:8px 0"><b>Connected: @${esc(g.username)}</b><span class="spacer"></span>
+        <button class="danger" id="g_dis">Disconnect</button></div>
+      <label class="toggle"><input type="checkbox" id="g_auto" ${g.auto?"checked":""}> Post every new Short automatically - one per day</label>
+      <label class="lbl">Daily posting time (India time)</label>
+      <div class="row"><input id="g_time" type="time" value="${esc(g.time)}" style="flex:1"><button class="ghost" id="g_tsave">Save time</button></div>
+      <div class="row" style="margin-top:10px"><button class="primary" style="flex:1" id="g_all">Schedule all finished Shorts</button></div>
+      <div class="small muted" style="margin-top:8px">Scheduled Reels are posted by your app's clock (checks every 10 minutes), even when your phone is off.</div>`
+    : `<div class="small muted">One-time setup (about 15 minutes). Free - it doesn't use your credits.</div>
+      <ol class="small" style="padding-left:18px;line-height:1.7;margin:10px 0">
+        <li>Instagram app → Settings → <b>Account type and tools</b> → <b>Switch to professional account</b> → <b>Creator</b>.</li>
+        <li>Go to <a href="https://developers.facebook.com/apps" target="_blank">developers.facebook.com/apps</a> (log in with Facebook) → <b>Create app</b> → use case <b>"Manage messaging &amp; content on Instagram"</b> → name it "Verse Films Studio".</li>
+        <li>In the app: <b>Instagram → API setup with Instagram login</b> → <b>Generate access tokens</b> → <b>Add account</b> → log in to your Instagram → allow.</li>
+        <li>Copy the long token it shows and paste it below.</li></ol>
+      <label class="lbl">Instagram access token</label><input id="g_tok" type="password" autocomplete="off" placeholder="IGAA...">
+      <div class="row" style="margin-top:14px"><button class="primary" style="flex:1" id="g_con">Connect Instagram</button></div>`}
+  </div>
   <div class="card"><h2>Email when a Short is ready</h2>
     <div class="small muted">Get an email when a Short finishes or fails, so you don't have to keep checking.</div>
     <label class="toggle"><input type="checkbox" id="s_on" ${s.notify_on?"checked":""}> Send me emails</label>
@@ -567,6 +608,18 @@ async function settingsPage(){
   } else {
     $("#y_save").onclick = async () => { try { await api("/youtube/client",{method:"PUT",body:{client_id:$("#y_id").value,client_secret:$("#y_sec").value}}); toast("Saved"); settingsPage(); } catch(e){ toast(e.message); } };
     $("#y_con").onclick = () => { location.href = "/api/youtube/connect"; };
+  }
+  if (g.connected) {
+    $("#g_dis").onclick = async () => { if (!confirm("Disconnect Instagram?")) return; await api("/instagram/disconnect",{method:"POST"}); CFG=null; settingsPage(); };
+    $("#g_auto").onchange = async () => { await api("/instagram/settings",{method:"PUT",body:{auto:$("#g_auto").checked}}); toast($("#g_auto").checked?"New Shorts will post automatically":"Auto-posting off"); };
+    $("#g_tsave").onclick = async () => { try { await api("/instagram/settings",{method:"PUT",body:{time:$("#g_time").value}}); toast("Saved"); } catch(e){ toast(e.message); } };
+    $("#g_all").onclick = async () => { if (!confirm(`Post all finished Shorts that aren't on Instagram yet, one per day at ${$("#g_time").value}?`)) return;
+      try { const r = await api("/instagram/schedule-all",{method:"POST",body:{time:$("#g_time").value}}); toast(`${r.count} Reel(s) scheduled`, 4000); }
+      catch(e){ toast(e.message, 4000); } };
+  } else {
+    $("#g_con").onclick = async () => { $("#g_con").disabled = true;
+      try { const r = await api("/instagram/token",{method:"PUT",body:{token:$("#g_tok").value}}); CFG=null; toast("✅ Connected @"+r.username, 4000); settingsPage(); }
+      catch(e){ toast(e.message, 6000); $("#g_con").disabled = false; } };
   }
   const save = () => api("/settings", {method:"PUT", body:{notify_on:$("#s_on").checked, notify_email:$("#s_to").value,
       gmail_user:$("#s_user").value, gmail_app_password:$("#s_pw").value, app_url:location.origin}});

@@ -22,7 +22,7 @@ IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/app:$(date +%Y%m%d-%H%M%S)"
 say "Enabling Google APIs (first time takes ~1 min)"
 gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com \
   storage.googleapis.com aiplatform.googleapis.com iam.googleapis.com texttospeech.googleapis.com youtube.googleapis.com \
-  iamcredentials.googleapis.com --quiet
+  iamcredentials.googleapis.com cloudscheduler.googleapis.com --quiet
 
 say "Storage bucket for your Shorts"
 gcloud storage buckets describe "gs://${BUCKET}" >/dev/null 2>&1 || \
@@ -81,5 +81,15 @@ if ! gcloud run deploy "$SERVICE" --image "$IMAGE" --region "$REGION" --service-
 fi
 
 URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')
+
+say "Instagram posting clock (checks every 10 minutes for scheduled posts - free tier)"
+TICK_KEY=$(APP_SECRET="$APP_SECRET" python3 -c 'import hmac,hashlib,os;print(hmac.new(os.environ["APP_SECRET"].encode(),b"ig-tick",hashlib.sha256).hexdigest())')
+if gcloud scheduler jobs describe insideyou-ig-tick --location "$REGION" >/dev/null 2>&1; then
+  gcloud scheduler jobs update http insideyou-ig-tick --location "$REGION" --schedule "*/10 * * * *" \
+    --uri "${URL}/api/instagram/tick?key=${TICK_KEY}" --http-method GET --quiet >/dev/null || echo "WARNING: couldn't update the Instagram clock"
+else
+  gcloud scheduler jobs create http insideyou-ig-tick --location "$REGION" --schedule "*/10 * * * *" \
+    --uri "${URL}/api/instagram/tick?key=${TICK_KEY}" --http-method GET --time-zone "Asia/Kolkata" --quiet >/dev/null || echo "WARNING: couldn't create the Instagram clock (scheduled posts won't fire)"
+fi
 say "Done! Open your app: ${URL}"
 echo "Bookmark it on your phone (Chrome menu -> Add to Home screen)."

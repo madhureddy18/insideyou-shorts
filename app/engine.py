@@ -613,7 +613,18 @@ def step_video(job: Job, redo=None):
     if not job.state.get("script_text"):
         brand_mark_used(job.store, job.state.get("topic", ""))
     job.log("Done! Your Short is ready")
-    job.save(stage="done", clips=clips, final_at=now())
+    extra = {}
+    try:                                       # auto-post: book the next free daily Instagram slot
+        from . import instagram as IG
+        igc = IG.status(job.store)
+        if igc["connected"] and igc["auto"] and (job.state.get("instagram") or {}).get("status") not in (
+                "posted", "scheduled", "posting"):
+            at = IG.next_slot(job.store, ig_taken(job.store))
+            extra["instagram"] = {"status": "scheduled", "at": at, "auto": True}
+            job.log(f"Instagram: will post automatically at {at.replace('T', ' ')[:16]} (India time)")
+    except Exception as e:
+        job.log(f"Instagram auto-schedule skipped: {str(e)[:100]}")
+    job.save(stage="done", clips=clips, final_at=now(), **extra)
 
 
 # ====================================================================== runner
@@ -680,9 +691,57 @@ def upload_youtube(store, jid, arg):
     store.write_json(f"jobs/{jid}/state.json", st)
 
 
+def ig_caption(sc, st):
+    seo = sc.get("seo") or {}
+    cap = (seo.get("instagram_caption") or "").strip()
+    if not cap:
+        tags = " ".join("#" + t.replace(" ", "") for t in (sc.get("tags") or [])[:5])
+        cap = f"{sc.get('title') or st.get('topic', '')}\n\nFollow for more 3D explainers.\n\n{tags}".strip()
+    return cap
+
+
+def ig_taken(store):
+    """Planned Instagram post times of every scheduled Short."""
+    out = []
+    for j in store.list_dirs("jobs/"):
+        ig = (store.read_json(f"jobs/{j}/state.json") or {}).get("instagram") or {}
+        if ig.get("status") in ("scheduled", "posting") and ig.get("at"):
+            out.append(ig["at"])
+    return out
+
+
+def post_instagram(store, jid):
+    from . import instagram as IG
+    st = store.read_json(f"jobs/{jid}/state.json") or {}
+    sc = store.read_json(f"jobs/{jid}/script.json") or {}
+    ig = dict(st.get("instagram") or {})
+    try:
+        if st.get("stage") != "done":
+            raise RuntimeError("No finished video to post")
+        url = store.signed_url(f"jobs/{jid}/final.mp4", minutes=240)
+        if not url:
+            raise RuntimeError("Couldn't make a link to the video for Instagram (run deploy.sh again)")
+        res = IG.publish(store, url, ig_caption(sc, st))
+        ig = {"status": "posted", "id": res["id"], "url": res["url"], "posted": now()}
+        print("posted to Instagram:", res["url"], flush=True)
+    except Exception as e:
+        traceback.print_exc()
+        ig = {"status": "failed", "error": str(e)[:300], "tried": now()}
+    st = store.read_json(f"jobs/{jid}/state.json") or st
+    st["instagram"] = ig
+    st["updated"] = now()
+    store.write_json(f"jobs/{jid}/state.json", st)
+
+
 def run(store: Store, jid: str, step: str, arg: str = ""):
     if step == "youtube":
         return upload_youtube(store, jid, arg)
+    if step == "instagram":
+        return post_instagram(store, jid)
+    if step == "igbatch":                     # arg = comma list of job ids that are due now
+        for j in [x for x in arg.split(",") if x]:
+            post_instagram(store, j)
+        return
     if step == "ytbatch":                     # arg = "jid@time,jid@time" - schedule many uploads
         for item in [x for x in arg.split(",") if "@" in x]:
             j, t = item.split("@", 1)
