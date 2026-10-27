@@ -37,6 +37,9 @@ MOVES = [
     ("1.12", "(iw-iw/zoom)*on/{N}", "ih/2-(ih/zoom/2)"),                    # drift sideways
 ]
 
+PUNCH_AFTER = 3.2      # seconds: AI clips longer than this get a punch-in cut in the middle
+
+
 def _video_clip(video, audio, out, pad=0.12):
     """Fit an AI video clip to the narration length: trim, gently slow down, or hold the last frame."""
     d = _dur(audio) + pad
@@ -51,8 +54,16 @@ def _video_clip(video, audio, out, pad=0.12):
         tail = ""
     vf = (f"{speed}fps={FPS},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
           f"crop={W}:{H},setsar=1{tail},format=yuv420p")
+    if d > PUNCH_AFTER:                  # long shot: editor-style punch-in halfway so it never feels slow
+        m = d * 0.5
+        z = 1.18
+        vchain = (f"[0:v]{vf},split[p1][p2];[p1]trim=0:{m:.3f},setpts=PTS-STARTPTS[a1];"
+                  f"[p2]trim={m:.3f},setpts=PTS-STARTPTS,scale={int(W*z)//2*2}:{int(H*z)//2*2}:flags=lanczos,"
+                  f"crop={W}:{H},setsar=1[a2];[a1][a2]concat=n=2:v=1:a=0[v]")
+    else:
+        vchain = f"[0:v]{vf}[v]"
     _run(["ffmpeg", "-y", "-i", str(video), "-i", str(audio),
-          "-filter_complex", f"[0:v]{vf}[v];[1:a]apad,atrim=0:{d:.3f},aresample=44100[a]",
+          "-filter_complex", f"{vchain};[1:a]apad,atrim=0:{d:.3f},aresample=44100[a]",
           "-map", "[v]", "-map", "[a]", "-t", f"{d:.3f}",
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
           "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", str(out)])
@@ -77,18 +88,20 @@ def _ts(t):
     h = int(t // 3600); m = int(t % 3600 // 60); s = t % 60
     return f"{h}:{m:02d}:{s:05.2f}"
 
-def _ass(words, font, path, hook_title="", watermark="", total=0.0, captions="pop"):
+def _ass(words, font, path, hook_title="", watermark="", total=0.0, captions="pop", end_card="", end_sub=""):
     """Word-by-word pop captions: chunks of up to 2 words, active word highlighted yellow."""
     head = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {W}
 PlayResY: {H}
-WrapStyle: 2
+WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Cap,{font},92,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,3,2,60,60,560,1
-Style: Clean,{font},66,&H00FFFFFF,&H00FFFFFF,&H00202020,&H64000000,-1,0,0,0,100,100,0,0,1,4,1.5,2,80,80,520,1
+Style: Clean,{font},82,&H00FFFFFF,&H00FFFFFF,&H00141414,&H78000000,-1,0,0,0,100,100,0,0,1,6,2,2,70,70,500,1
+Style: EndBtn,{font},74,&H00141414,&H00141414,&H0030B8F2,&H0030B8F2,-1,0,0,0,100,100,1,0,3,22,0,5,80,80,0,1
+Style: EndSub,{font},46,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,4,0,1,4,2,5,80,80,0,1
 Style: Mark,{font},34,&H4DFFFFFF,&H4DFFFFFF,&H80000000,&H00000000,-1,0,0,0,100,100,3,0,1,2,0,9,50,60,150,1
 Style: Hook,{font},118,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,2,0,1,9,5,8,70,70,300,1
 
@@ -99,6 +112,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     if watermark and total > 0:            # small semi-transparent corner mark for the whole video
         wm = watermark.upper().replace("{", "").replace("}", "")
         lines.append(f"Dialogue: 2,0:00:00.00,{_ts(total)},Mark,,0,0,0,,{wm}")
+    if end_card and total > 2.5:          # "FOLLOW FOR MORE" button over the final seconds
+        last = words[-1][1] if words else total - 1.8
+        st = min(max(last - 0.3, total - 2.2), total - 1.2)
+        btn = end_card.upper().replace("{", "").replace("}", "")
+        lines.append(f"Dialogue: 3,{_ts(st)},{_ts(total)},EndBtn,,0,0,0,,"
+                     r"{\pos(540,1060)\fscx40\fscy40\t(0,160,\fscx112\fscy112)\t(160,260,\fscx100\fscy100)"
+                     r"\t(700,850,\fscx106\fscy106)\t(850,1000,\fscx100\fscy100)}" + "  " + btn + "  ")
+        if end_sub:
+            sub = end_sub.upper().replace("{", "").replace("}", "")
+            lines.append(f"Dialogue: 3,{_ts(st + 0.12)},{_ts(total)},EndSub,,0,0,0,,"
+                         r"{\pos(540,950)\fad(200,0)}" + sub)
     if hook_title:
         t = hook_title.upper().replace("{", "").replace("}", "")
         ws = t.split()
@@ -149,13 +173,14 @@ def _make_sfx(workdir, total):
                  f"afade=t=out:st={max(0, d - 2.5):.2f}:d=2.5,volume=0.6", "-ac", "2", str(pad)])
     return whoosh, pad
 
-def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="", captions="pop"):
+def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="", captions="pop",
+                end_card="", end_sub=""):
     """shots: list of {image, video?, audio, words:[(start,end,text) relative to its own audio]}"""
     workdir = Path(workdir)
     clips, all_words, cuts, t0 = [], [], [], 0.0
     for i, s in enumerate(shots, 1):
         clip = workdir / f"clip_{i:02d}.mp4"
-        pad = 0.8 if i == len(shots) else 0.12      # let the last line breathe before the video ends
+        pad = (1.7 if end_card else 0.8) if i == len(shots) else 0.12   # room for the last line + end card
         if s.get("video"):
             d = _video_clip(s["video"], s["audio"], clip, pad=pad)
         else:
@@ -173,7 +198,10 @@ def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="
 
     fdir, font = _font(workdir)
     ass = workdir / "captions.ass"
-    _ass(all_words, font, ass, hook_title, watermark, t0, captions)
+    _ass(all_words, font, ass, hook_title, watermark, t0, captions, end_card, end_sub)
+    if end_card and t0 > 2.5:                      # soft whoosh as the follow button pops in
+        last = all_words[-1][1] if all_words else t0 - 1.8
+        cuts.append(min(max(last - 0.3, t0 - 2.2), t0 - 1.2) + 0.2)
     ass_arg = str(ass).replace("\\", "/").replace(":", r"\:")
     fd_arg = str(fdir).replace("\\", "/").replace(":", r"\:")
 

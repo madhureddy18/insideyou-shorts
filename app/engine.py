@@ -140,8 +140,9 @@ BRIGHT_RULES = f"""- VISUAL STYLE: a bright, clean, toy-like 3D world - glossy p
   "motion".
 - PEOPLE: the objects and the process are the stars. Show mainly realistic HANDS interacting with things (Hero's
   hands, with his sleeves matching his outfit, so put "Hero" in characters). Show Hero's face in at most 2 shots.
-- BRANDING here: put "{C.BRAND_TEXT}" boldly on 3-4 objects like a real product logo (the box, machine, device
-  screen, packaging, a sign), always where it fits naturally."""
+- BRANDING here: put "{C.BRAND_TEXT}" on 1-2 objects only, like a real product logo (a box, machine, packaging,
+  a sign), always where it fits naturally. Never the same object twice, and screens stay normal (no logo on a
+  phone/TV screen in more than one shot)."""
 
 CINEMATIC_RULES = """- VISUAL STYLE: cinematic, realistic medical-explainer 3D with dramatic lighting and inside-the-body views."""
 
@@ -153,8 +154,12 @@ def _script_prompt(topic, num_shots, face=None, look_name=None):
         narration_rules = f"""- Total narration 70-100 words, calm, clear and fast-paced.
 - Narrate what happens step by step, like a calm documentary voice ("The robot is placed inside the cage.
   Then a magnet..."). Use "you/your" when the viewer's own body or life is the subject.
-- Shot 1 starts MID-ACTION on the most striking moment of the story (no intro, no question, no "Did you know").
-  Its narration (6-12 words) states what is happening or a surprising claim.
+- SHOT 1 IS THE HOOK - the most important shot. Open on the most dramatic, surprising or visually wild moment
+  of the whole story (the explosion of particles, the inside view, the thing going wrong, the shocking scale),
+  NOT a calm setup. Never open on someone picking up, plugging in, sitting down or looking at something.
+  Its narration (6-12 words) is the most surprising claim or consequence in the story, said as a fact, e.g.
+  "Every time you charge your phone, you force billions of atoms into a cage." Then shot 2 goes back to
+  show how it starts. No intro, no question, no "Did you know".
 - Exactly {num_shots} shots. Each shot narration is ONE quick beat of 6-14 words.
 - Last shot: when it fits, end on what this means in real life ("And someday...", "That's why...") as a
   complete sentence (never stop on words like "because", "and", "so"). Its image uses the same framing and
@@ -306,8 +311,13 @@ def step_script(job: Job):
     sc["hero_outfit"] = outfit
     cast["Hero"] = face + ", wearing " + outfit
     sc["cast"] = [{"name": k, "look": v} for k, v in cast.items()]
+    branded = 0
     for s in sc["shots"]:
         s["characters"] = [c for c in s.get("characters", []) if c in cast]
+        if (s.get("brand_on") or "").strip():          # brand on objects: a couple of times, not every shot
+            branded += 1
+            if branded > C.MAX_BRAND_OBJECTS:
+                s["brand_on"] = ""
     sc["fact_check"] = changes or ["all claims OK"]
     sc["look"] = st.get("look") or C.DEFAULT_LOOK
     job.dir.mkdir(parents=True, exist_ok=True)
@@ -348,6 +358,8 @@ def _shot_prompt(sc, s):
     if s.get("brand_on"):
         brand = (f' The text "{C.BRAND_TEXT}" is clearly and correctly spelled on {s["brand_on"]}, '
                  f'printed naturally like a real logo (correct perspective, not floating).')
+    else:
+        brand = " No logos or words on any object or screen in this shot apart from clothing prints (screens show a normal display)."
     if "Hero" in s["characters"]:
         brand += f' The "{C.BRAND_TEXT}" print on Hero\'s outfit is visible and spelled correctly.'
     return (f"{s['image_prompt']}. {('Characters in this shot - ' + who + lock + ' ') if who else ''}"
@@ -539,7 +551,8 @@ def step_video(job: Job, redo=None):
     work.mkdir(exist_ok=True)
     lk = C.look(sc.get("look"))
     build_short(shots, work, job.dir / "final.mp4", hook_title=sc.get("hook_title", "") if lk["hook_title"] else "",
-                watermark=C.WATERMARK_TEXT, captions=lk["captions"])
+                watermark=C.WATERMARK_TEXT, captions=lk["captions"],
+                end_card=C.END_CARD, end_sub=C.END_CARD_SUB)
     job.put("final.mp4")
     job.log("Writing SEO: target searches, 10 scored titles, description, tags...")
     try:

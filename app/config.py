@@ -33,6 +33,9 @@ DEFAULT_VOICE = os.environ.get("DEFAULT_VOICE", "gemini:Charon")
 
 BRAND_TEXT = os.environ.get("BRAND_TEXT", "VERSE FILMS")          # printed inside scenes (shirt, signs, labels)
 WATERMARK_TEXT = os.environ.get("WATERMARK_TEXT", "VERSE FILMS")  # small corner watermark on every video
+END_CARD = os.environ.get("END_CARD", "FOLLOW FOR MORE")            # button shown over the last ~2 seconds ("" = off)
+END_CARD_SUB = os.environ.get("END_CARD_SUB", BRAND_TEXT)            # small line above the button
+MAX_BRAND_OBJECTS = 2                                                # "VERSE FILMS" on objects in at most this many shots
 HERO_FACE_KEY = "brand/hero_face_v1.png"
 HERO_DESC_KEY = "brand/hero_face.json"     # {"description": ...} written when you upload your own face      # saved once: the mascot's face/hair reference, reused forever
 
