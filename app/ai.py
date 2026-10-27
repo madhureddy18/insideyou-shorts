@@ -171,6 +171,22 @@ def _image_variants(b64):
     ]
 
 
+def clip_ok(path, min_s=1.5):
+    """A real, playable video clip: has a video stream, lasts long enough, and its frames actually decode."""
+    path = Path(path)
+    if not path.exists() or path.stat().st_size < 10000:
+        return False
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
+                          "-show_entries", "stream=nb_read_frames,duration", "-of", "default=nw=1:nk=1",
+                          str(path)], capture_output=True, text=True).stdout.split()
+    try:
+        vals = [float(x) for x in out if x not in ("N/A",)]
+    except ValueError:
+        return False
+    frames = max(vals) if vals else 0
+    return frames >= 20 and _media_dur(path) >= min_s
+
+
 def _extract_video(js):
     for step in js.get("steps", []) or []:
         for c in step.get("content", []) or []:
@@ -212,7 +228,14 @@ def video(prompt, img_path, out_path):
         if not data:
             raise RuntimeError("no video in response: " + json.dumps(js)[:300])
         Path(out_path).write_bytes(data)
+        if not clip_ok(out_path):                 # broken/partial download: fetch once more before giving up
+            data = _extract_video(js)
+            if data:
+                Path(out_path).write_bytes(data)
         _meter("video_s", _media_dur(out_path))
+        if not clip_ok(out_path):
+            Path(out_path).unlink(missing_ok=True)
+            raise RuntimeError("video came back broken or too short")
         if part and _img_fmt["idx"] is None:
             _img_fmt["idx"] = _image_variants(b64).index(part)
         return

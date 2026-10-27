@@ -40,28 +40,51 @@ MOVES = [
 PUNCH_AFTER = 3.2      # seconds: AI clips longer than this get a punch-in cut in the middle
 
 
+def _vstream_dur(path):
+    """Length of the VIDEO track only. (The file length can be longer: Gemini Omni clips carry their own
+    audio track, and using the file length here is what froze pictures before.)"""
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                          "stream=duration,nb_frames,r_frame_rate", "-of", "default=nw=1", str(path)],
+                         capture_output=True, text=True).stdout
+    kv = dict(l.split("=", 1) for l in out.splitlines() if "=" in l)
+    try:
+        return float(kv["duration"])
+    except (KeyError, ValueError):
+        pass
+    try:
+        n = float(kv["nb_frames"])
+        a, b = kv["r_frame_rate"].split("/")
+        return n / (float(a) / float(b))
+    except (KeyError, ValueError, ZeroDivisionError):
+        return _dur(path)
+
+
 def _video_clip(video, audio, out, pad=0.12):
-    """Fit an AI video clip to the narration length: trim, gently slow down, or hold the last frame."""
+    """Fit an AI video clip to the narration length: trim, gently slow down, or play it forward-then-back
+    (boomerang) when the line is much longer than the clip - never a frozen frame."""
     d = _dur(audio) + pad
-    vd = _dur(video)
-    speed = ""
+    vd = _vstream_dur(video)
+    src = "[0:v]setpts=PTS-STARTPTS"
+    if vd * 1.35 < d:                                # too short even slowed down: boomerang doubles it
+        src = "[0:v]setpts=PTS-STARTPTS,split[f0][r0];[r0]reverse[r1];[f0][r1]concat=n=2:v=1:a=0"
+        vd *= 2
+    speed, tail = "", ""
     if vd < d:
         f = min(d / vd, 1.35)                       # slow down at most 35%
-        speed = f"setpts={f:.4f}*PTS,"
+        speed = f",setpts={f:.4f}*PTS"
         hold = max(0.0, d - vd * f)
-        tail = f",tpad=stop_mode=clone:stop_duration={hold + 0.1:.3f}" if hold > 0 else ""
-    else:
-        tail = ""
-    vf = (f"{speed}fps={FPS},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
+        if hold > 0:
+            tail = f",tpad=stop_mode=clone:stop_duration={hold + 0.1:.3f}"
+    vf = (f"{src}{speed},fps={FPS},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
           f"crop={W}:{H},setsar=1{tail},format=yuv420p")
     if d > PUNCH_AFTER:                  # long shot: editor-style punch-in halfway so it never feels slow
         m = d * 0.5
         z = 1.18
-        vchain = (f"[0:v]{vf},split[p1][p2];[p1]trim=0:{m:.3f},setpts=PTS-STARTPTS[a1];"
+        vchain = (f"{vf},split[p1][p2];[p1]trim=0:{m:.3f},setpts=PTS-STARTPTS[a1];"
                   f"[p2]trim={m:.3f},setpts=PTS-STARTPTS,scale={int(W*z)//2*2}:{int(H*z)//2*2}:flags=lanczos,"
                   f"crop={W}:{H},setsar=1[a2];[a1][a2]concat=n=2:v=1:a=0[v]")
     else:
-        vchain = f"[0:v]{vf}[v]"
+        vchain = f"{vf}[v]"
     _run(["ffmpeg", "-y", "-i", str(video), "-i", str(audio),
           "-filter_complex", f"{vchain};[1:a]apad,atrim=0:{d:.3f},aresample=44100[a]",
           "-map", "[v]", "-map", "[a]", "-t", f"{d:.3f}",
@@ -173,18 +196,50 @@ def _make_sfx(workdir, total):
                  f"afade=t=out:st={max(0, d - 2.5):.2f}:d=2.5,volume=0.6", "-ac", "2", str(pad)])
     return whoosh, pad
 
+def _vframes(path):
+    """(video seconds, decoded frames) of a clip."""
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
+                          "-show_entries", "stream=nb_read_frames", "-of", "default=nw=1:nk=1", str(path)],
+                         capture_output=True, text=True).stdout.strip()
+    try:
+        f = int(out.split()[0])
+    except (ValueError, IndexError):
+        f = 0
+    return f / FPS, f
+
+
+def _freezes(path, min_s=2.0):
+    out = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(path), "-map", "0:v", "-vf",
+                          f"freezedetect=n=0.002:d={min_s}", "-f", "null", "-"], capture_output=True, text=True).stderr
+    st = [float(x.split("freeze_start:")[1].split()[0]) for x in out.splitlines() if "freeze_start:" in x]
+    du = [float(x.split("freeze_duration:")[1].split()[0]) for x in out.splitlines() if "freeze_duration:" in x]
+    return list(zip(st, du))
+
+
 def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="", captions="pop",
-                end_card="", end_sub=""):
+                end_card="", end_sub="", log=print):
     """shots: list of {image, video?, audio, words:[(start,end,text) relative to its own audio]}"""
     workdir = Path(workdir)
     clips, all_words, cuts, t0 = [], [], [], 0.0
     for i, s in enumerate(shots, 1):
         clip = workdir / f"clip_{i:02d}.mp4"
         pad = (1.7 if end_card else 0.8) if i == len(shots) else 0.12   # room for the last line + end card
+        d = None
         if s.get("video"):
-            d = _video_clip(s["video"], s["audio"], clip, pad=pad)
-        else:
+            try:
+                d = _video_clip(s["video"], s["audio"], clip, pad=pad)
+                vs, _ = _vframes(clip)
+                if vs < d - 0.25:            # the AI clip didn't decode fully - never let the picture freeze
+                    log(f"clip {i}: video only {vs:.1f}s of {d:.1f}s - using its still image instead")
+                    d = None
+            except Exception as e:
+                log(f"clip {i}: couldn't edit the AI clip ({str(e)[-120:]}) - using its still image")
+                d = None
+        if d is None:
             d = _shot_clip(i, s["image"], s["audio"], clip, pad=pad)
+            vs, _ = _vframes(clip)
+            if vs < d - 0.25:
+                raise RuntimeError(f"shot {i}: picture is {vs:.1f}s but the voice is {d:.1f}s")
         clips.append(clip)
         all_words += [(t0 + a, t0 + b, txt) for a, b, txt in s["words"]]
         if i > 1:
@@ -228,4 +283,7 @@ def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="
           "-pix_fmt", "yuv420p",
           "-c:a", "aac", "-b:a", "192k", "-t", f"{t0:.3f}", "-movflags", "+faststart", str(out_path)])
     print(f"  total: {t0:.1f}s")
+    holds = [(a, b) for a, b in _freezes(out_path) if a < t0 - 2.5]   # the end card hold is expected
+    if holds:
+        log("WARNING frozen picture at " + ", ".join(f"{a:.1f}s ({b:.1f}s long)" for a, b in holds))
     return out_path

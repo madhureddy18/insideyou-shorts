@@ -446,6 +446,15 @@ def _dur(path):
     return float(out.strip())
 
 
+def _even_words(text, dur):
+    """Fallback caption timing: spread the words evenly over the line's audio."""
+    ws = text.split()
+    if not ws:
+        return []
+    step = max(0.05, (dur - 0.1) / len(ws))
+    return [(0.05 + k * step, 0.05 + (k + 1) * step, w) for k, w in enumerate(ws)]
+
+
 def _video_prompt(s, secs, sc=None):
     if (sc or {}).get("look", C.DEFAULT_LOOK) == "bright":
         cam = ("ONE continuous smooth camera move (macro push-in, orbit or fly-through as described), shallow depth "
@@ -488,6 +497,11 @@ def step_video(job: Job, redo=None):
             job.store.delete(job.prefix + f"omni_{i:02d}.mp4")
             clips[str(i)] = "waiting"
     job.save(stage="animating", clips=clips)
+    missing = [i for i in range(1, n + 1) if not _valid(job.dir / f"shot_{i:02d}.png")]
+    if missing:                               # never animate/edit with holes - redraw missing images first (~Rs 3.5 each)
+        job.log(f"Redrawing missing image(s): {', '.join(map(str, missing))}")
+        for i in missing:
+            _make_shot(job, sc, i)
     job.log("Recording narration...")
     words = _narrate(job, sc)
     animate = job.state.get("animate", "all")
@@ -496,14 +510,23 @@ def step_video(job: Job, redo=None):
     def do_clip(i):
         s = sc["shots"][i - 1]
         out = job.dir / f"omni_{i:02d}.mp4"
-        if _valid(out):
+        if ai.clip_ok(out):
             return i, "ok"
+        out.unlink(missing_ok=True)
         clips[str(i)] = "animating"
         job.save(clips=clips)            # also checks for Cancel
         secs = max(4, min(10, math.ceil(_dur(job.dir / f"voice_{i:02d}.mp3") + 0.3)))
         img = job.dir / f"shot_{i:02d}.png"
+        if not _valid(img):
+            return i, "still (no image for this shot)"
         try:
-            ai.video(_video_prompt(s, secs, sc), img, out)
+            try:
+                ai.video(_video_prompt(s, secs, sc), img, out)
+            except ai.ContentBlocked:
+                raise
+            except Exception as e:           # one more try for a glitch (timeout, broken file)
+                job.log(f"clip {i} problem ({str(e)[:80]}) - trying once more")
+                ai.video(_video_prompt(s, secs, sc), img, out)
             job.put(out.name)
             return i, "ok"
         except ai.ContentBlocked:
@@ -518,9 +541,9 @@ def step_video(job: Job, redo=None):
                 job.put(out.name)
                 return i, "ok"
             except Exception as e:
-                return i, "zoom (" + str(e)[:80] + ")"
+                return i, "still image (" + str(e)[:80] + ")"
         except Exception as e:
-            return i, "zoom (" + str(e)[:80] + ")"
+            return i, "still image (" + str(e)[:80] + ")"
 
     def mark(i, status):
         clips[str(i)] = status
@@ -542,17 +565,22 @@ def step_video(job: Job, redo=None):
     shots = []
     for i in range(1, n + 1):
         img = job.dir / f"shot_{i:02d}.png"
-        if not _valid(img):
-            img = next(p for p in sorted(job.dir.glob("shot_*.png")) if _valid(p))
+        if not _valid(img):                   # last resort: the nearest earlier image
+            near = [job.dir / f"shot_{k:02d}.png" for k in list(range(i - 1, 0, -1)) + list(range(i + 1, n + 1))]
+            img = next(p for p in near if _valid(p))
         vid = job.dir / f"omni_{i:02d}.mp4"
-        shots.append({"image": img, "video": vid if _valid(vid) else None,
-                      "audio": job.dir / f"voice_{i:02d}.mp3", "words": words[i]})
+        aud = job.dir / f"voice_{i:02d}.mp3"
+        w = words[i] or _even_words(sc["shots"][i - 1]["narration"], _dur(aud))
+        shots.append({"image": img, "video": vid if ai.clip_ok(vid) else None, "audio": aud, "words": w})
+    real = sum(1 for s_ in shots if s_["video"])
+    if targets and real < len(targets):
+        job.log(f"{real} of {len(targets)} shots animated; the rest use moving still images (see clip lines above)")
     work = job.dir / "edit"
     work.mkdir(exist_ok=True)
     lk = C.look(sc.get("look"))
     build_short(shots, work, job.dir / "final.mp4", hook_title=sc.get("hook_title", "") if lk["hook_title"] else "",
                 watermark=C.WATERMARK_TEXT, captions=lk["captions"],
-                end_card=C.END_CARD, end_sub=C.END_CARD_SUB)
+                end_card=C.END_CARD, end_sub=C.END_CARD_SUB, log=job.log)
     job.put("final.mp4")
     job.log("Writing SEO: target searches, 10 scored titles, description, tags...")
     try:
