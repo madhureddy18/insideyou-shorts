@@ -37,6 +37,7 @@ MOVES = [
     ("1.12", "(iw-iw/zoom)*on/{N}", "ih/2-(ih/zoom/2)"),                    # drift sideways
 ]
 
+WHOOSH = False         # swoosh sound on every cut
 PUNCH_AFTER = 3.2      # seconds: AI clips longer than this get a punch-in cut in the middle
 
 
@@ -249,21 +250,28 @@ def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="
     lst = workdir / "clips.txt"
     lst.write_text("".join(f"file '{c.resolve()}'\n" for c in clips))
     joined = workdir / "joined.mp4"
-    _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(joined)])
+    # Join by DECODING every clip (not stream-copy): AI clips and still-image clips have different encoder
+    # headers, and copy-joining them made players drop every clip after the first.
+    ins, parts = [], []
+    for k, c in enumerate(clips):
+        ins += ["-i", str(c)]
+        parts.append(f"[{k}:v]setpts=PTS-STARTPTS,fps={FPS},scale={W}:{H},setsar=1,format=yuv420p[v{k}];"
+                     f"[{k}:a]aresample=44100,asetpts=PTS-STARTPTS[a{k}]")
+    cat = "".join(f"[v{k}][a{k}]" for k in range(len(clips))) + f"concat=n={len(clips)}:v=1:a=1[jv][ja]"
+    _run(["ffmpeg", "-y", *ins, "-filter_complex", ";".join(parts) + ";" + cat, "-map", "[jv]", "-map", "[ja]",
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
+          "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", str(joined)])
 
     fdir, font = _font(workdir)
     ass = workdir / "captions.ass"
     _ass(all_words, font, ass, hook_title, watermark, t0, captions, end_card, end_sub)
-    if end_card and t0 > 2.5:                      # soft whoosh as the follow button pops in
-        last = all_words[-1][1] if all_words else t0 - 1.8
-        cuts.append(min(max(last - 0.3, t0 - 2.2), t0 - 1.2) + 0.2)
     ass_arg = str(ass).replace("\\", "/").replace(":", r"\:")
     fd_arg = str(fdir).replace("\\", "/").replace(":", r"\:")
 
     whoosh, pad = _make_sfx(workdir, t0)
     bed_in = ["-stream_loop", "-1", "-i", str(music)] if music and Path(music).exists() else ["-i", str(pad)]
     bed_vol = 0.18 if music and Path(music).exists() else 0.5
-    n = len(cuts)
+    n = len(cuts) if WHOOSH else 0                 # whoosh between shots: off (it sounded like "ssh" noise)
     fc = [f"[0:a]asplit=2[voice][sc]",
           f"[1:a]atrim=0:{t0:.3f},volume={bed_vol},afade=t=out:st={max(0, t0 - 1.5):.3f}:d=1.5[bedraw]",
           "[bedraw][sc]sidechaincompress=threshold=0.04:ratio=6:attack=15:release=350[bed]"]
@@ -277,12 +285,15 @@ def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="
     fc.append(f"{mix_inputs}amix=inputs={2 + n}:normalize=0:duration=first,"
               f"loudnorm=I=-14:TP=-1.5:LRA=11,aresample=44100[aout]")
     fc.append(f"[0:v]subtitles='{ass_arg}':fontsdir='{fd_arg}'[vout]")
-    _run(["ffmpeg", "-y", "-i", str(joined), *bed_in, "-i", str(whoosh),
+    _run(["ffmpeg", "-y", "-i", str(joined), *bed_in, *(["-i", str(whoosh)] if n else []),
           "-filter_complex", ";".join(fc), "-map", "[vout]", "-map", "[aout]",
           "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-maxrate", "7M", "-bufsize", "14M",
           "-pix_fmt", "yuv420p",
           "-c:a", "aac", "-b:a", "192k", "-t", f"{t0:.3f}", "-movflags", "+faststart", str(out_path)])
     print(f"  total: {t0:.1f}s")
+    vs, _ = _vframes(out_path)
+    if vs < t0 - 0.5:                              # never hand over a video whose picture stops early
+        raise RuntimeError(f"final video check failed: picture {vs:.1f}s, sound {t0:.1f}s")
     holds = [(a, b) for a, b in _freezes(out_path) if a < t0 - 2.5]   # the end card hold is expected
     if holds:
         log("WARNING frozen picture at " + ", ".join(f"{a:.1f}s ({b:.1f}s long)" for a, b in holds))
