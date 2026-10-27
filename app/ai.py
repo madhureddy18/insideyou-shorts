@@ -150,12 +150,17 @@ def image(prompt, out_path, refs=None):
                   f"or background unless told to. Create this NEW scene: " + prompt)
     resp = gemini(C.IMAGE_MODEL_ID, prompt,
                   {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": "9:16"}}, extra or None)
-    for part in resp["candidates"][0]["content"]["parts"]:
+    cands = resp.get("candidates") or []
+    block = (resp.get("promptFeedback") or {}).get("blockReason")
+    reason = block or (cands[0].get("finishReason") if cands else "no candidates")
+    for part in ((cands[0].get("content") or {}).get("parts") or []) if cands else []:
         d = part.get("inlineData") or part.get("inline_data")
         if d and d.get("data"):
             Path(out_path).write_bytes(base64.b64decode(d["data"]))
             return
-    raise RuntimeError("no image returned")
+    if block or any(k in str(reason).upper() for k in ("SAFETY", "PROHIBITED", "BLOCK", "SPII", "RECITATION")):
+        raise ContentBlocked(f"image refused ({reason})")
+    raise RuntimeError(f"no image returned ({reason})")
 
 
 # ---------------------------------------------------------------- video (Gemini Omni)

@@ -379,18 +379,29 @@ def _valid(p):
     return p.exists() and p.stat().st_size > 1000
 
 
-def _make_shot(job, sc, i):
+def _make_shot(job, sc, i, tries=3):
+    """Draw one shot. Waits between tries (busy servers), and if the safety filter refuses the picture,
+    retries with a softened, family-friendly version of the same scene."""
     job.check()
     p = job.dir / f"shot_{i:02d}.png"
+    s = sc["shots"][i - 1]
     last = None
-    for attempt in range(3):
+    for attempt in range(tries):
         try:
-            ai.image(_shot_prompt(sc, sc["shots"][i - 1]), p, refs=_refs(job, sc, i))
+            ai.image(_shot_prompt(sc, s), p, refs=_refs(job, sc, i))
+            if not _valid(p):
+                raise RuntimeError("empty image")
             job.put(p.name)
             return True
+        except ai.ContentBlocked as e:
+            last = e
+            job.log(f"shot {i}: safety filter refused it - softening the scene and retrying")
+            s = dict(s, image_prompt=s["image_prompt"] + ". Family-friendly, everyone fully clothed, calm, "
+                     "no injuries, no bare skin except hands and face.")
         except Exception as e:
             last = e
             job.log(f"shot {i} retry {attempt + 1}: {str(e)[:120]}")
+            time.sleep(6 * (attempt + 1))
     job.log(f"shot {i} FAILED: {str(last)[:150]}")
     return False
 
@@ -434,6 +445,12 @@ def step_images(job: Job, redo=None):
         job.log(f"Drawing shots {', '.join(map(str, todo))}...")
         with ThreadPoolExecutor(3) as ex:
             list(ex.map(lambda k: _make_shot(job, sc, k), todo))
+    failed = [i for i in range(1, len(sc["shots"]) + 1) if not _valid(job.dir / f"shot_{i:02d}.png")]
+    if failed:                                # second pass, one at a time, after a short pause
+        job.log(f"Retrying image(s) {', '.join(map(str, failed))} one by one...")
+        time.sleep(10)
+        for k in failed:
+            _make_shot(job, sc, k)
     imgs = [i for i in range(1, len(sc["shots"]) + 1) if _valid(job.dir / f"shot_{i:02d}.png")]
     job.log("Images ready - review them" if len(imgs) == len(sc["shots"]) else "Some images failed - redo them")
     job.save(stage="images_ready", images=imgs)
