@@ -586,9 +586,14 @@ def step_video(job: Job, redo=None):
             start = _flow_start(job, i)
             if start:
                 try:
+                    refs = [("the scene this shot must smoothly arrive at (same subject, characters, "
+                             "style); match it by the end of the shot", img)]
+                    for name in s.get("characters") or []:     # stop outfits/faces drifting over a long take
+                        sheet = job.dir / _sheet_name(name)
+                        if _valid(sheet):
+                            refs.append((f"{name}'s exact face, hair and outfit - must not change", sheet))
                     ai.video(_flow_prompt(sc["shots"][i - 2], s, secs, sc), start, out, fake_secs=secs,
-                             refs=[("the scene this shot must smoothly arrive at (same subject, characters, "
-                                    "style); match it by the end of the shot", img)])
+                             refs=refs[:3])
                     job.put(out.name)
                     return i, "ok"
                 except ai.ContentBlocked:
