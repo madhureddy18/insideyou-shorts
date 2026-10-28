@@ -477,6 +477,37 @@ def _dur(path):
     return float(out.strip())
 
 
+FLOW_PAD = 0.12      # must match the per-shot pad build_short uses between shots
+
+
+def _flow_start(job, i):
+    """The exact frame where clip i-1 ends in the edit (it gets trimmed to its narration), saved as an image."""
+    prev = job.dir / f"omni_{i - 1:02d}.mp4"
+    if not ai.clip_ok(prev):
+        return None
+    from .assemble import _vstream_dur
+    d = _dur(job.dir / f"voice_{i - 1:02d}.mp3") + FLOW_PAD
+    t = max(0.0, min(d, _vstream_dur(prev)) - 0.06)
+    out = job.dir / f"flow_{i:02d}.png"
+    r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.3f}", "-i", str(prev), "-frames:v", "1",
+                        str(out)], capture_output=True)
+    if r.returncode or not _valid(out):           # seeking past the end: take the very last frame
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-sseof", "-0.2", "-i", str(prev), "-update", "1",
+                        str(out)], capture_output=True)
+    return out if _valid(out) else None
+
+
+def _flow_prompt(prev, s, secs, sc):
+    style = ("bright clean high-key 3D, glossy toy-like materials" if (sc or {}).get("look", C.DEFAULT_LOOK) == "bright"
+             else "cinematic 3D, dramatic lighting")
+    return (f"This image is the LAST frame of the previous shot. Continue from it as ONE unbroken camera move "
+            f"for {secs} seconds - no cut, no fade, no jump. Move the camera smoothly (push in, fly through, orbit "
+            f"or pull out) so the scene transforms into the next moment: {s['image_prompt']}. {s.get('motion', '')} "
+            f"By the end of the shot the frame should look like the reference image. Keep every character's face, "
+            f"hair and outfit exactly the same, keep the {style} style, vertical 9:16, 720p. Keep any printed "
+            f"brand text ({C.BRAND_TEXT}) unchanged. No new text, captions or logos. No people talking.")
+
+
 def _even_words(text, dur):
     """Fallback caption timing: spread the words evenly over the line's audio."""
     ws = text.split()
@@ -536,6 +567,7 @@ def step_video(job: Job, redo=None):
     job.log("Recording narration...")
     words = _narrate(job, sc)
     animate = job.state.get("animate", "all")
+    flow = bool(job.state.get("flow")) and animate == "all"
     targets = redo or ([] if animate == "none" else ([1] if animate == "hook" else list(range(1, n + 1))))
 
     def do_clip(i):
@@ -550,14 +582,27 @@ def step_video(job: Job, redo=None):
         img = job.dir / f"shot_{i:02d}.png"
         if not _valid(img):
             return i, "still (no image for this shot)"
+        if flow and i > 1:                   # continuous: start exactly where the previous clip ends
+            start = _flow_start(job, i)
+            if start:
+                try:
+                    ai.video(_flow_prompt(sc["shots"][i - 2], s, secs, sc), start, out, fake_secs=secs,
+                             refs=[("the scene this shot must smoothly arrive at (same subject, characters, "
+                                    "style); match it by the end of the shot", img)])
+                    job.put(out.name)
+                    return i, "ok"
+                except ai.ContentBlocked:
+                    job.log(f"clip {i}: continuous version blocked - using its own image instead")
+                except Exception as e:
+                    job.log(f"clip {i}: continuous version failed ({str(e)[:80]}) - using its own image instead")
         try:
             try:
-                ai.video(_video_prompt(s, secs, sc), img, out)
+                ai.video(_video_prompt(s, secs, sc), img, out, fake_secs=secs)
             except ai.ContentBlocked:
                 raise
             except Exception as e:           # one more try for a glitch (timeout, broken file)
                 job.log(f"clip {i} problem ({str(e)[:80]}) - trying once more")
-                ai.video(_video_prompt(s, secs, sc), img, out)
+                ai.video(_video_prompt(s, secs, sc), img, out, fake_secs=secs)
             job.put(out.name)
             return i, "ok"
         except ai.ContentBlocked:
@@ -585,11 +630,16 @@ def step_video(job: Job, redo=None):
         for i in targets:
             clips.setdefault(str(i), "waiting")
         job.save(clips=clips)
-        job.log(f"Animating {len(targets)} shot(s) with Gemini Omni...")
-        mark(*do_clip(targets[0]))          # first alone: learns the request format
-        with ThreadPoolExecutor(C.VIDEO_WORKERS) as ex:
-            for i, status in ex.map(do_clip, targets[1:]):
-                mark(i, status)
+        if flow:                             # one after another: each clip continues from the one before
+            job.log(f"Animating {len(targets)} shot(s) in Flow mode - one continuous take, clip by clip...")
+            for i in sorted(targets):
+                mark(*do_clip(i))
+        else:
+            job.log(f"Animating {len(targets)} shot(s) with Gemini Omni...")
+            mark(*do_clip(targets[0]))          # first alone: learns the request format
+            with ThreadPoolExecutor(C.VIDEO_WORKERS) as ex:
+                for i, status in ex.map(do_clip, targets[1:]):
+                    mark(i, status)
 
     job.check()
     job.log("Editing: captions, hook title, sound, loudness...")
@@ -602,7 +652,8 @@ def step_video(job: Job, redo=None):
         vid = job.dir / f"omni_{i:02d}.mp4"
         aud = job.dir / f"voice_{i:02d}.mp3"
         w = words[i] or _even_words(sc["shots"][i - 1]["narration"], _dur(aud))
-        shots.append({"image": img, "video": vid if ai.clip_ok(vid) else None, "audio": aud, "words": w})
+        shots.append({"image": img, "video": vid if ai.clip_ok(vid) else None, "audio": aud, "words": w,
+                      "flow": bool(job.state.get("flow"))})
     real = sum(1 for s_ in shots if s_["video"])
     if targets and real < len(targets):
         job.log(f"{real} of {len(targets)} shots animated; the rest use moving still images (see clip lines above)")
@@ -641,8 +692,48 @@ def step_video(job: Job, redo=None):
     job.save(stage="done", clips=clips, final_at=now(), **extra)
 
 
+def step_oneshot(job: Job):
+    """EXPERIMENT: ask Gemini Omni for the WHOLE Short in one continuous multi-shot generation, with its own
+    narration and sound (like Seedance does), so we can compare it to the clip-by-clip edit."""
+    from .assemble import finish_oneshot
+    sc = job.script()
+    prev_stage = job.state.get("stage") if job.state.get("stage") not in RUNNING_STAGES else "images_ready"
+    job.save(stage="animating", oneshot={"status": "making", "started": now()})
+    narration = " ".join(s["narration"] for s in sc["shots"])
+    secs = max(10, min(60, round(len(narration.split()) / 2.6)))
+    scenes = "\n".join(f"{k}. {s['image_prompt']} - {s.get('motion', '')}" for k, s in enumerate(sc["shots"], 1))
+    cast = _cast(sc)
+    style = (C.look(sc.get("look")) or {}).get("style", "")
+    prompt = (f"Create ONE continuous {secs}-second vertical 9:16 3D animated explainer video (Zack D. Films "
+              f"style), with smooth camera moves and flowing transitions between these scenes (no hard cuts "
+              f"unless it is a match cut):\n{scenes}\n\nThe narrator (calm, clear, confident male voice-over, "
+              f"English) says EXACTLY this, perfectly in sync with the visuals:\n\"{narration}\"\n\n"
+              f"Add fitting sound effects and soft background music under the voice. Hero is {cast.get('Hero', '')} - "
+              f"keep his face, hair and outfit identical in every scene (see the reference). Style: {style}. "
+              f"The first frame is the attached image. Keep the printed text {C.BRAND_TEXT} unchanged; no other text, "
+              f"captions or subtitles on screen.")
+    raw = job.dir / "oneshot_raw.mp4"
+    hero = job.dir / _sheet_name("Hero")
+    job.log(f"One-shot test: asking Gemini Omni for the whole {secs}s Short in one go (can take 5-15 min)...")
+    try:
+        ai.video(prompt, job.dir / "shot_01.png", raw, refs=[("Hero, the main character", hero)], fake_secs=secs)
+        job.put(raw.name)
+        got, has_a = finish_oneshot(raw, job.dir / "oneshot_edit", job.dir / "oneshot.mp4", C.WATERMARK_TEXT,
+                                    C.END_CARD, C.END_CARD_SUB)
+        job.put("oneshot.mp4")
+        note = (f"Asked for {secs}s, got {got:.1f}s" + ("" if has_a else " - no sound came back, so it's silent"))
+        job.log("One-shot test ready: " + note)
+        job.save(stage=prev_stage, oneshot={"status": "done", "asked_s": secs, "got_s": round(got, 1),
+                                            "has_audio": has_a, "note": note, "at": now()})
+    except Cancelled:
+        raise
+    except Exception as e:
+        job.log(f"One-shot test failed: {str(e)[:200]}")
+        job.save(stage=prev_stage, oneshot={"status": "failed", "error": str(e)[:300], "at": now()})
+
+
 # ====================================================================== runner
-STEPS = {"script": step_script, "images": step_images, "video": step_video}
+STEPS = {"script": step_script, "images": step_images, "video": step_video, "oneshot": step_oneshot}
 
 
 def _record_spend(store, jid, u):
@@ -785,7 +876,7 @@ def run(store: Store, jid: str, step: str, arg: str = ""):
             step_video(job, redo=nums)
         else:
             STEPS[step](job)
-        if job.state.get("stage") == "done":
+        if job.state.get("stage") == "done" and step != "oneshot":
             notify(store, job, ok=True)
     except Cancelled:
         print("cancelled by user", flush=True)

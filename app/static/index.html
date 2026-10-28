@@ -188,6 +188,7 @@ async function home(){
     <div id="nsBox"><label class="lbl">Number of shots: <b id="nsv">10</b></label>
     <input id="ns" type="range" min="5" max="12" value="10" style="padding:0;accent-color:var(--accent)"></div>
     <label class="toggle"><input type="checkbox" id="auto"> Skip reviews (fully automatic)</label>
+    <label class="toggle"><input type="checkbox" id="flow" checked> Flow mode (new): one continuous take - each clip starts where the last one ends</label>
     <button class="primary" style="width:100%;margin-top:16px;padding:15px" id="create">Create Short</button>
   </div>
   <div class="row" style="margin:22px 0 10px"><h3>Your Shorts</h3><span class="spacer"></span>
@@ -227,12 +228,12 @@ async function home(){
     if (count > 1) {
       if (!confirm(`Make ${count} Shorts automatically? About ₹${cost(shotsNow(), animate)*count} of credits in total.`)) return;
       $("#create").disabled = true;
-      try { await api("/batch",{method:"POST",body:{count, animate, num_shots:shotsNow(), voice, look:$("#look").value}}); toast(`${count} Shorts queued`); home(); }
+      try { await api("/batch",{method:"POST",body:{count, animate, num_shots:shotsNow(), voice, look:$("#look").value, flow:$("#flow").checked}}); toast(`${count} Shorts queued`); home(); }
       catch(e){ toast(e.message); $("#create").disabled=false; }
       return;
     }
     $("#create").disabled = true;
-    try { const st = await api("/jobs",{method:"POST",body:{topic, script_text, voice, look:$("#look").value, animate, num_shots:shotsNow(), auto:$("#auto").checked}});
+    try { const st = await api("/jobs",{method:"POST",body:{topic, script_text, voice, look:$("#look").value, animate, num_shots:shotsNow(), auto:$("#auto").checked, flow:$("#flow").checked}});
           location.hash = "#/job/"+st.id; }
     catch(e){ toast(e.message); $("#create").disabled=false; }
   };
@@ -253,7 +254,7 @@ async function jobPage(id){
   let lastKey = "";
   const load = async () => {
     let d; try { d = await api("/jobs/"+id); } catch(e){ if(e.message!=="login") app.innerHTML=header(true)+`<div class="card">${esc(e.message)}</div>`; return; }
-    const st = d.state, key = st.stage+"|"+st.updated+"|"+JSON.stringify(st.youtube||{})+JSON.stringify(st.instagram||{});
+    const st = d.state, key = st.stage+"|"+st.updated+"|"+JSON.stringify(st.youtube||{})+JSON.stringify(st.instagram||{})+JSON.stringify(st.oneshot||{});
     if (key === lastKey) return;
     const v = document.querySelector("video"); if (v && !v.paused) return;   // don't interrupt playback
     if (document.activeElement && /^seo_/.test(document.activeElement.id || "")) return;  // don't wipe SEO edits
@@ -291,7 +292,7 @@ function render(d){
     html += `<div class="card"><div class="row"><div class="spin"></div><b>${esc(st.status||"Working…")}</b></div>
       <div class="muted small" style="margin-top:6px">You can close this page - it keeps running in the cloud.</div>
       ${st.stage==="animating" && Object.keys(st.clips||{}).length ? `<div class="clipgrid">${Object.entries(st.clips).map(([k,v])=>
-        `<div>Shot ${k}<br>${v==="ok"?'<span style="color:var(--ok)">✓ animated</span>':v==="animating"?'<span style="color:var(--accent)">animating…</span>':v.startsWith("zoom")?'<span style="color:var(--warn)">still + zoom</span>':'<span class="muted">waiting</span>'}</div>`).join("")}</div>`:""}
+        `<div>Shot ${k}<br>${v==="ok"?'<span style="color:var(--ok)">✓ animated</span>':v==="animating"?'<span style="color:var(--accent)">animating…</span>':(v.startsWith("zoom")||v.startsWith("still"))?'<span style="color:var(--warn)">still + zoom</span>':'<span class="muted">waiting</span>'}</div>`).join("")}</div>`:""}
       <div class="logs" id="logs">${esc((st.logs||[]).slice(-14).join("\n"))}</div></div>`;
     sticky.innerHTML = `<div class="sticky"><div class="in"><button class="danger" style="background:var(--bg)" onclick="cancelJob('${id}')">✕ Cancel</button></div></div>`;
     if (st.stage==="imaging" && (st.images||[]).length) html += imagesGrid(st, sc, false);
@@ -343,6 +344,7 @@ function render(d){
       ${igCard(st)}
       ${sc && sc.seo ? seoCard(st, sc.seo) : `<label class="lbl">Upload text</label><div class="copybox" id="upload">${esc(d.upload)}</div>`}
       <div class="small muted" style="margin-top:10px">Tip: when uploading, tick YouTube's "altered or synthetic content" box and Instagram's "AI info" label.</div></div>
+      ${sc ? labCard(st, sc) : ""}
       ${sc ? `<div class="card"><h3>Fix a shot</h3><div class="small muted" style="margin-bottom:10px">Not happy with one animation? Redo just that clip - the rest stays the same.</div>
         <div class="grid">${sc.shots.map((s,i)=>{ const k=i+1, v=(st.clips||{})[k];
           return `<div class="tile"><span class="num">${k}</span>
@@ -436,6 +438,31 @@ let _uploadText = "";
 function copyUpload(){ navigator.clipboard.writeText(_uploadText).then(()=>toast("Copied!")); }
 function copyIG(){
   const txt = $("#seo_ig").value; navigator.clipboard.writeText(txt).then(()=>toast("Instagram caption copied"));
+}
+function labCard(st, sc){
+  const id = st.id, n = sc.shots.length, per = CFG?CFG.rs_per_shot:55;
+  const words = sc.shots.map(s=>s.narration).join(" ").split(/\s+/).length;
+  const secs = Math.max(10, Math.min(60, Math.round(words/2.6))), one = Math.round(secs*8.5);
+  const o = st.oneshot || {};
+  let res = "";
+  if (o.status === "making") res = `<div class="row" style="margin-top:12px"><div class="spin"></div><span>Making the one-shot version… (5-15 min)</span></div>`;
+  else if (o.status === "done") res = `<div style="margin-top:12px"><video controls playsinline preload="metadata" src="${file(id,"oneshot.mp4",o.at)}"></video>
+      <div class="small muted" style="margin-top:6px">${esc(o.note||"")}</div>
+      <a href="${file(id,"oneshot.mp4","dl")}" download><button class="ghost" style="width:100%;margin-top:8px">Download one-shot version</button></a></div>`;
+  else if (o.status === "failed") res = `<div class="small" style="color:var(--bad);margin-top:10px">One-shot test failed: ${esc(o.error)}</div>`;
+  return `<div class="card"><h3>🎬 Continuous video</h3>
+    <div class="small muted">${st.flow?"This video was made in <b>Flow mode</b> (each clip continues from the previous one).":"This video was made clip by clip (hard cuts)."}</div>
+    <div class="row" style="margin-top:10px"><button class="ghost" style="flex:1" onclick="reflow('${id}',${n},${n*per})">Re-animate in Flow mode · ≈₹${n*per}</button></div>
+    <div class="row" style="margin-top:8px"><button class="ghost" style="flex:1" ${o.status==="making"?"disabled":""} onclick="oneshot('${id}',${one})">One-shot test (whole Short in one go, with its own voice) · ≈₹${one}</button></div>
+    ${res}</div>`;
+}
+async function reflow(id, n, c){
+  if (!confirm(`Re-animate all ${n} clips as one continuous take? About ₹${c}. Takes longer (clips are made one after another).`)) return;
+  try { await api(`/jobs/${id}/step`, {method:"POST", body:{step:"video", shots:[...Array(n).keys()].map(i=>i+1), flow:true}}); jobPage(id); } catch(e){ toast(e.message, 4000); }
+}
+async function oneshot(id, c){
+  if (!confirm(`Experiment: ask Gemini Omni for the whole Short in ONE generation (like Seedance). About ₹${c}. Your current video stays as it is.`)) return;
+  try { await api(`/jobs/${id}/step`, {method:"POST", body:{step:"oneshot"}}); toast("One-shot test started"); jobPage(id); } catch(e){ toast(e.message, 4000); }
 }
 function igCard(st){
   const g = st.instagram || {}, id = st.id;

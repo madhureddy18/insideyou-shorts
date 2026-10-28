@@ -204,47 +204,81 @@ def _extract_video(js):
     return None
 
 
-def video(prompt, img_path, out_path):
+def _mime_of(path):
+    b = Path(path).read_bytes()[:12]
+    return "image/jpeg" if b[:3] == b"\xff\xd8\xff" else "image/png"
+
+
+def _img_part(path, idx):
+    b64 = base64.b64encode(Path(path).read_bytes()).decode()
+    part = _image_variants(b64)[idx]
+    mt = _mime_of(path)
+    for k in ("mime_type",):
+        if k in part:
+            part[k] = mt
+        for sub in ("image", "inline_data"):
+            if sub in part:
+                part[sub]["mime_type"] = mt
+    return part
+
+
+def video(prompt, img_path, out_path, refs=None, fake_secs=5):
+    """Animate a start image (img_path) into a clip. refs: optional [(label, image_path)] extra reference images
+    (e.g. the scene a continuous shot must arrive at). If the model refuses extra images, retries without."""
     if FAKE:
-        _fake_video(out_path)
+        _fake_video(out_path, fake_secs)
         _meter("video_s", _media_dur(out_path))
         return
     url = INTERACT_URL.format(p=C.PROJECT)
-    b64 = base64.b64encode(Path(img_path).read_bytes()).decode() if img_path else None
-    variants = [None] if not b64 else (
-        [_image_variants(b64)[_img_fmt["idx"]]] if _img_fmt["idx"] is not None else _image_variants(b64))
+    idxs = ([_img_fmt["idx"]] if _img_fmt["idx"] is not None else [0, 1, 2]) if img_path else [None]
+    refs = [(l, r) for l, r in (refs or []) if Path(r).exists()]
     last = None
-    for part in variants:
-        body = {"model": C.VIDEO_MODEL_ID, "input": ([part] if part else []) + [{"type": "text", "text": prompt}]}
-        try:
-            js = _post(url, body, timeout=1200, tries=4)
-        except ContentBlocked:
-            raise
-        except RuntimeError as e:
-            last = str(e)
-            if last.startswith("400") and part:
-                continue
-            raise
-        t0 = time.time()
-        while js.get("status") not in ("completed", "failed", "cancelled") and time.time() - t0 < 1500:
-            time.sleep(10)
-            js = requests.get(f"{url}/{js['id']}", headers=_headers(), timeout=120).json()
-        data = _extract_video(js)
-        if not data:
-            raise RuntimeError("no video in response: " + json.dumps(js)[:300])
-        Path(out_path).write_bytes(data)
-        if not clip_ok(out_path):                 # broken/partial download: fetch once more before giving up
+    for idx in idxs:
+        for use_refs in ([True, False] if refs else [False]):
+            inp = []
+            if idx is not None:
+                inp.append(_img_part(img_path, idx))
+            if use_refs:
+                for label, r in refs:
+                    inp.append({"type": "text", "text": f"Reference image - {label}:"})
+                    inp.append(_img_part(r, idx if idx is not None else 0))
+            inp.append({"type": "text", "text": prompt})
+            body = {"model": C.VIDEO_MODEL_ID, "input": inp}
+            try:
+                js = _post(url, body, timeout=1200, tries=4)
+            except ContentBlocked:
+                raise
+            except RuntimeError as e:
+                last = str(e)
+                if last.startswith("400"):
+                    continue                  # try without the extra images, then the next image format
+                raise
+            t0 = time.time()
+            while js.get("status") not in ("completed", "failed", "cancelled") and time.time() - t0 < 1500:
+                time.sleep(10)
+                js = requests.get(f"{url}/{js['id']}", headers=_headers(), timeout=120).json()
             data = _extract_video(js)
-            if data:
-                Path(out_path).write_bytes(data)
-        _meter("video_s", _media_dur(out_path))
-        if not clip_ok(out_path):
-            Path(out_path).unlink(missing_ok=True)
-            raise RuntimeError("video came back broken or too short")
-        if part and _img_fmt["idx"] is None:
-            _img_fmt["idx"] = _image_variants(b64).index(part)
-        return
+            if not data:
+                raise RuntimeError("no video in response: " + json.dumps(js)[:300])
+            Path(out_path).write_bytes(data)
+            if not clip_ok(out_path):             # broken/partial download: fetch once more before giving up
+                data = _extract_video(js)
+                if data:
+                    Path(out_path).write_bytes(data)
+            _meter("video_s", _media_dur(out_path))
+            if not clip_ok(out_path):
+                Path(out_path).unlink(missing_ok=True)
+                raise RuntimeError("video came back broken or too short")
+            if idx is not None and _img_fmt["idx"] is None:
+                _img_fmt["idx"] = idx
+            return
     raise RuntimeError(last or "video failed")
+
+
+def has_audio(path):
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index",
+                          "-of", "csv=p=0", str(path)], capture_output=True, text=True).stdout.strip()
+    return bool(out)
 
 
 # ---------------------------------------------------------------- voice
@@ -440,8 +474,8 @@ def _fake_image(prompt, out_path):
     time.sleep(float(os.environ.get("FAKE_DELAY", "0.3")))
 
 
-def _fake_video(out_path):
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=720x1280:d=5:r=24",
+def _fake_video(out_path, secs=5):
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"testsrc2=s=720x1280:d={secs}:r=24",
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out_path)], check=True)
     time.sleep(1)
 

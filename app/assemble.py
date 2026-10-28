@@ -60,25 +60,25 @@ def _vstream_dur(path):
         return _dur(path)
 
 
-def _video_clip(video, audio, out, pad=0.12):
+def _video_clip(video, audio, out, pad=0.12, flow=False):
     """Fit an AI video clip to the narration length: trim, gently slow down, or play it forward-then-back
     (boomerang) when the line is much longer than the clip - never a frozen frame."""
     d = _dur(audio) + pad
     vd = _vstream_dur(video)
     src = "[0:v]setpts=PTS-STARTPTS"
-    if vd * 1.35 < d:                                # too short even slowed down: boomerang doubles it
+    if vd * 1.35 < d and not flow:                   # too short even slowed down: boomerang doubles it
         src = "[0:v]setpts=PTS-STARTPTS,split[f0][r0];[r0]reverse[r1];[f0][r1]concat=n=2:v=1:a=0"
         vd *= 2
     speed, tail = "", ""
     if vd < d:
-        f = min(d / vd, 1.35)                       # slow down at most 35%
+        f = min(d / vd, 1.5 if flow else 1.35)      # slow down a little (Flow: never reverse - it breaks the take)
         speed = f",setpts={f:.4f}*PTS"
         hold = max(0.0, d - vd * f)
         if hold > 0:
             tail = f",tpad=stop_mode=clone:stop_duration={hold + 0.1:.3f}"
     vf = (f"{src}{speed},fps={FPS},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
           f"crop={W}:{H},setsar=1{tail},format=yuv420p")
-    if d > PUNCH_AFTER:                  # long shot: editor-style punch-in halfway so it never feels slow
+    if d > PUNCH_AFTER and not flow:     # long shot: editor-style punch-in halfway so it never feels slow
         m = d * 0.5
         z = 1.18
         vchain = (f"{vf},split[p1][p2];[p1]trim=0:{m:.3f},setpts=PTS-STARTPTS[a1];"
@@ -228,7 +228,7 @@ def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="
         d = None
         if s.get("video"):
             try:
-                d = _video_clip(s["video"], s["audio"], clip, pad=pad)
+                d = _video_clip(s["video"], s["audio"], clip, pad=pad, flow=bool(s.get("flow")))
                 vs, _ = _vframes(clip)
                 if vs < d - 0.25:            # the AI clip didn't decode fully - never let the picture freeze
                     log(f"clip {i}: video only {vs:.1f}s of {d:.1f}s - using its still image instead")
@@ -298,3 +298,27 @@ def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="
     if holds:
         log("WARNING frozen picture at " + ", ".join(f"{a:.1f}s ({b:.1f}s long)" for a, b in holds))
     return out_path
+
+
+def finish_oneshot(raw, workdir, out_path, watermark="", end_card="", end_sub=""):
+    """Polish a one-shot AI video: vertical 1080x1920, watermark + follow card, loudness. Keeps its own sound
+    (adds silence if it has none)."""
+    workdir = Path(workdir)
+    workdir.mkdir(parents=True, exist_ok=True)
+    total = _vstream_dur(raw)
+    fdir, font = _font(workdir)
+    ass = workdir / "oneshot.ass"
+    _ass([], font, ass, "", watermark, total, "clean", end_card, end_sub)
+    ass_arg = str(ass).replace("\\", "/").replace(":", r"\:")
+    fd_arg = str(fdir).replace("\\", "/").replace(":", r"\:")
+    has_a = bool(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index",
+                                 "-of", "csv=p=0", str(raw)], capture_output=True, text=True).stdout.strip())
+    a_in = [] if has_a else ["-f", "lavfi", "-t", f"{total:.3f}", "-i", "anullsrc=r=44100:cl=stereo"]
+    a_map = "0:a" if has_a else "1:a"
+    vf = (f"fps={FPS},scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},setsar=1,"
+          f"subtitles='{ass_arg}':fontsdir='{fd_arg}',format=yuv420p")
+    af = "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=44100" if has_a else "anull"
+    _run(["ffmpeg", "-y", "-i", str(raw), *a_in, "-map", "0:v", "-map", a_map, "-vf", vf, "-af", af,
+          "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-maxrate", "7M", "-bufsize", "14M",
+          "-c:a", "aac", "-b:a", "192k", "-t", f"{total:.3f}", "-movflags", "+faststart", str(out_path)])
+    return total, has_a

@@ -154,6 +154,7 @@ class NewJob(BaseModel):
     animate: str = "all"
     num_shots: int = 7
     auto: bool = False
+    flow: bool = True                 # continuous clips: each starts where the previous one ends
 
 
 @app.post("/api/jobs")
@@ -168,7 +169,7 @@ def create(body: NewJob):
     jid = engine.new_job_id()
     st = {"id": jid, "created": engine.now(), "topic": body.topic.strip(), "script_text": script_text,
           "animate": body.animate, "voice": _voice(body.voice), "look": _look(body.look),
-          "num_shots": max(4, min(12, body.num_shots)), "auto": body.auto, "stage": "queued",
+          "num_shots": max(4, min(12, body.num_shots)), "auto": body.auto, "flow": body.flow, "stage": "queued",
           "status": "Starting...", "logs": [], "clips": {}, "images": [],
           "estimate_rs": engine.estimate_rs(body.num_shots, body.animate)}
     _save_state(jid, st)
@@ -190,6 +191,7 @@ class BatchReq(BaseModel):
     num_shots: int = 10
     voice: str = ""
     look: str = ""
+    flow: bool = True
 
 
 @app.post("/api/batch")
@@ -207,7 +209,7 @@ def batch(body: BatchReq):
     for k, t in enumerate(topics, 1):
         jid = engine.new_job_id() + str(k)
         st = {"id": jid, "created": engine.now(), "topic": t, "script_text": "", "animate": body.animate,
-              "voice": _voice(body.voice), "look": _look(body.look), "num_shots": max(4, min(12, body.num_shots)), "auto": True,
+              "voice": _voice(body.voice), "look": _look(body.look), "num_shots": max(4, min(12, body.num_shots)), "auto": True, "flow": body.flow,
               "batch": True, "stage": "waiting", "status": f"Waiting in batch ({k} of {len(topics)})", "logs": [],
               "clips": {}, "images": [], "run_id": secrets.token_hex(6),
               "estimate_rs": engine.estimate_rs(body.num_shots, body.animate)}
@@ -265,6 +267,7 @@ def edit_script(jid: str, body: ScriptEdit):
 class StepReq(BaseModel):
     step: str
     shots: list[int] | None = None
+    flow: bool | None = None          # switch Flow mode on/off for this video before re-animating
 
 
 @app.post("/api/jobs/{jid}/step")
@@ -272,8 +275,15 @@ def run_step(jid: str, body: StepReq):
     st = _state(jid)
     if _busy(st):
         raise HTTPException(409, "Already working on this Short")
-    if body.step not in ("script", "images", "video"):
+    if body.step not in ("script", "images", "video", "oneshot"):
         raise HTTPException(400, "bad step")
+    if body.flow is not None:
+        st["flow"] = body.flow
+    if body.step == "oneshot":
+        if not st.get("images"):
+            raise HTTPException(400, "Make the images first")
+        _trigger(jid, "oneshot", st)
+        return {"ok": True}
     if body.step == "video":
         sc = store.read_json(f"jobs/{jid}/script.json") or {"shots": []}
         if len(st.get("images") or []) < len(sc["shots"]):
