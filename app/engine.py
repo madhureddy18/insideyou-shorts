@@ -159,14 +159,21 @@ def _script_prompt(topic, num_shots, face=None, look_name=None):
   Then a magnet..."). Use "you/your" when the viewer's own body or life is the subject.
 - SHOT 1 IS THE HOOK - the most important shot. Open on the most dramatic, surprising or visually wild moment
   of the whole story (the explosion of particles, the inside view, the thing going wrong, the shocking scale),
-  NOT a calm setup. Never open on someone picking up, plugging in, sitting down or looking at something.
+  NOT a calm setup. Something must visibly HAPPEN from the very first frame - never open on someone just
+  walking, standing, picking up, plugging in, sitting down or looking at something.
   Its narration (6-12 words) is the most surprising claim or consequence in the story, said as a fact, e.g.
   "Every time you charge your phone, you force billions of atoms into a cage." Then shot 2 goes back to
   show how it starts. No intro, no question, no "Did you know".
 - Exactly {num_shots} shots. Each shot narration is ONE quick beat of 6-14 words.
-- Last shot: when it fits, end on what this means in real life ("And someday...", "That's why...") as a
-  complete sentence (never stop on words like "because", "and", "so"). Its image uses the same framing and
-  setting as shot 1, so a replay feels smooth."""
+- Last shot is a VISUAL PUNCHLINE: a funny, surprising or satisfying image that pays off the story (family-
+  friendly - no violence or weapons), with a short complete closing line (never stop on words like
+  "because", "and", "so"). Use the same setting as shot 1 when it fits, so a replay feels smooth.
+- SHOW, DON'T JUST SAY (Zack D. Films tricks): make time and scale VISIBLE. Time passing -> a wall clock
+  spinning, a calendar flipping, seasons changing, day/night cycling, or the character visibly aging.
+  Distances/sizes/numbers -> a top-down or wide view that shows the scale, with a person for comparison.
+- overlay: for the 1-3 shots where a number matters, a tiny on-screen label (max 4 words, e.g. "6 FT",
+  "30 YEARS LATER", "0.03 SECONDS", "x1,000,000"). Leave "" everywhere else. Never put that text in the
+  image itself."""
     else:
         narration_rules = None
     return _apply_look(f"""You write viral 3D-animated explainer YouTube Shorts in the style of Zack D. Films.
@@ -220,7 +227,7 @@ Return ONLY JSON:
 {{"title": "...", "hook_title": "...", "description": "2 lines for YouTube", "tags": ["..."],
   "hero_outfit": "...",
   "cast": [{{"name": "Hero", "look": "..."}}, {{"name": "...", "look": "..."}}],
-  "shots": [{{"narration": "...", "characters": ["Hero"], "image_prompt": "...", "brand_on": "", "motion": "..."}}]}}""",
+  "shots": [{{"narration": "...", "characters": ["Hero"], "image_prompt": "...", "brand_on": "", "motion": "...", "overlay": ""}}]}}""",
         narration_rules, bright)
 
 
@@ -249,8 +256,14 @@ Rules:
 - Split the narration above into about {n} shots, in order. Use the creator's words EXACTLY, word for word -
   do not add, remove, reword or "improve" anything. Every word must appear in exactly one shot's "narration".
   Break at sentence or clause boundaries, 1-2 sentences per shot.
-- Plan visuals that show exactly what each line says. The first shot's visual must be the most striking one.
-- The last shot's image uses the SAME framing, camera angle and setting as shot 1, so a replay feels smooth.
+- Plan visuals that show exactly what each line says. The first shot's visual must be the most striking one,
+  with something visibly happening from the very first frame.
+- The last shot is a VISUAL PUNCHLINE - a funny, surprising or satisfying image that pays off the story
+  (family-friendly), ideally in the same setting as shot 1 so a replay feels smooth.
+- SHOW, DON'T JUST SAY: make time and scale VISIBLE - a spinning wall clock, flipping calendar, changing
+  seasons or the character visibly aging for time; a top-down/wide view with a person for scale for sizes.
+- overlay: for the 1-3 shots where a number matters, a tiny on-screen label (max 4 words, e.g. "6 FT",
+  "30 YEARS LATER"). Leave "" everywhere else. Never put that text in the image itself.
 - hook_title: 2-5 punchy words in CAPS for the first second, based on the opening line.
 - No medical advice, no gore.
 {tail}"""
@@ -376,6 +389,8 @@ def _shot_prompt(sc, s):
         brand = " No logos or words on any object or screen in this shot apart from clothing prints (screens show a normal display)."
     if "Hero" in s["characters"]:
         brand += f' The "{C.BRAND_TEXT}" print on Hero\'s outfit is visible and spelled correctly.'
+    if who:
+        lock += " Exactly one of each listed character - never two copies of the same person."
     return (f"{s['image_prompt']}. {('Characters in this shot - ' + who + lock + ' ') if who else ''}"
             f"{brand} {_style(sc)}")
 
@@ -505,7 +520,8 @@ def _flow_prompt(prev, s, secs, sc):
             f"or pull out) so the scene transforms into the next moment: {s['image_prompt']}. {s.get('motion', '')} "
             f"By the end of the shot the frame should look like the reference image. Keep every character's face, "
             f"hair and outfit exactly the same, keep the {style} style, vertical 9:16, 720p. Keep any printed "
-            f"brand text ({C.BRAND_TEXT}) unchanged. No new text, captions or logos. No people talking.")
+            f"brand text ({C.BRAND_TEXT}) unchanged. No new text, captions or logos. No people talking. "
+            f"Exactly ONE of each character in the frame - never duplicates or clones of the same person. Natural sound effects and ambience only (no music, no voices).")
 
 
 def _even_words(text, dur):
@@ -527,7 +543,8 @@ def _video_prompt(s, secs, sc=None):
             f"Keep the same 3D style, colors, characters, outfits and composition as the image. Continuous fluid "
             f"motion, {cam}, vertical 9:16, 720p. "
             f"Keep any printed brand text ({C.BRAND_TEXT}) exactly as it appears in the image - sharp, readable, "
-            f"not changing. Do not add any other text, captions or logos. No people talking.")
+            f"not changing. Do not add any other text, captions or logos. No people talking. "
+            f"Exactly ONE of each character in the frame - never duplicates or clones of the same person. Natural sound effects and ambience only (no music, no voices).")
 
 
 def _narrate(job, sc):
@@ -658,7 +675,8 @@ def step_video(job: Job, redo=None):
         aud = job.dir / f"voice_{i:02d}.mp3"
         w = words[i] or _even_words(sc["shots"][i - 1]["narration"], _dur(aud))
         shots.append({"image": img, "video": vid if ai.clip_ok(vid) else None, "audio": aud, "words": w,
-                      "flow": bool(job.state.get("flow"))})
+                      "flow": bool(job.state.get("flow")),
+                      "overlay": (sc["shots"][i - 1].get("overlay") or "").strip()[:28]})
     real = sum(1 for s_ in shots if s_["video"])
     if targets and real < len(targets):
         job.log(f"{real} of {len(targets)} shots animated; the rest use moving still images (see clip lines above)")

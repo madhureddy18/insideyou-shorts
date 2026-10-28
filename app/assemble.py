@@ -38,6 +38,12 @@ MOVES = [
 ]
 
 WHOOSH = False         # swoosh sound on every cut
+SFX_VOL = 0.28         # loudness of the AI clips' own sound effects under the narration (0 = off)
+
+
+def _has_audio(path):
+    return bool(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index",
+                                "-of", "csv=p=0", str(path)], capture_output=True, text=True).stdout.strip())
 PUNCH_AFTER = 3.2      # seconds: AI clips longer than this get a punch-in cut in the middle
 
 
@@ -69,9 +75,10 @@ def _video_clip(video, audio, out, pad=0.12, flow=False):
     if vd * 1.35 < d and not flow:                   # too short even slowed down: boomerang doubles it
         src = "[0:v]setpts=PTS-STARTPTS,split[f0][r0];[r0]reverse[r1];[f0][r1]concat=n=2:v=1:a=0"
         vd *= 2
-    speed, tail = "", ""
+    speed, tail, tempo = "", "", 1.0
     if vd < d:
-        f = min(d / vd, 1.5 if flow else 1.35)      # slow down a little (Flow: never reverse - it breaks the take)
+        f = min(d / vd, 1.5 if flow else 1.35)
+        tempo = 1 / f      # slow down a little (Flow: never reverse - it breaks the take)
         speed = f",setpts={f:.4f}*PTS"
         hold = max(0.0, d - vd * f)
         if hold > 0:
@@ -86,8 +93,16 @@ def _video_clip(video, audio, out, pad=0.12, flow=False):
                   f"crop={W}:{H},setsar=1[a2];[a1][a2]concat=n=2:v=1:a=0[v]")
     else:
         vchain = f"{vf}[v]"
+    nar = f"[1:a]aresample=44100,aformat=channel_layouts=stereo,apad,atrim=0:{d:.3f}"
+    if SFX_VOL > 0 and _has_audio(video):     # keep the clip's own sound effects/ambience, quietly under the voice
+        tp = f"atempo={max(0.5, tempo):.4f}," if tempo < 0.999 else ""
+        achain = (f"{nar}[nar];[0:a]asetpts=PTS-STARTPTS,{tp}aresample=44100,aformat=channel_layouts=stereo,"
+                  f"highpass=f=60,volume={SFX_VOL},apad,atrim=0:{d:.3f}[amb];"
+                  f"[nar][amb]amix=inputs=2:normalize=0:duration=first[a]")
+    else:
+        achain = f"{nar}[a]"
     _run(["ffmpeg", "-y", "-i", str(video), "-i", str(audio),
-          "-filter_complex", f"{vchain};[1:a]apad,atrim=0:{d:.3f},aresample=44100[a]",
+          "-filter_complex", f"{vchain};{achain}",
           "-map", "[v]", "-map", "[a]", "-t", f"{d:.3f}",
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
           "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", str(out)])
@@ -112,7 +127,8 @@ def _ts(t):
     h = int(t // 3600); m = int(t % 3600 // 60); s = t % 60
     return f"{h}:{m:02d}:{s:05.2f}"
 
-def _ass(words, font, path, hook_title="", watermark="", total=0.0, captions="pop", end_card="", end_sub=""):
+def _ass(words, font, path, hook_title="", watermark="", total=0.0, captions="pop", end_card="", end_sub="",
+         overlays=None):
     """Word-by-word pop captions: chunks of up to 2 words, active word highlighted yellow."""
     head = f"""[Script Info]
 ScriptType: v4.00+
@@ -125,6 +141,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: Cap,{font},92,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,3,2,60,60,560,1
 Style: Clean,{font},82,&H00FFFFFF,&H00FFFFFF,&H00141414,&H78000000,-1,0,0,0,100,100,0,0,1,6,2,2,70,70,500,1
 Style: EndBtn,{font},74,&H00141414,&H00141414,&H0030B8F2,&H0030B8F2,-1,0,0,0,100,100,1,0,3,22,0,5,80,80,0,1
+Style: Stat,{font},124,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,3,0,1,9,4,8,60,60,330,1
 Style: EndSub,{font},46,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,4,0,1,4,2,5,80,80,0,1
 Style: Mark,{font},34,&H4DFFFFFF,&H4DFFFFFF,&H80000000,&H00000000,-1,0,0,0,100,100,3,0,1,2,0,9,50,60,150,1
 Style: Hook,{font},118,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,2,0,1,9,5,8,70,70,300,1
@@ -136,6 +153,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     if watermark and total > 0:            # small semi-transparent corner mark for the whole video
         wm = watermark.upper().replace("{", "").replace("}", "")
         lines.append(f"Dialogue: 2,0:00:00.00,{_ts(total)},Mark,,0,0,0,,{wm}")
+    for a, b, txt in overlays or []:      # big on-screen numbers ("6 FT", "30 YEARS LATER"), Zack-style
+        t = txt.upper().replace("{", "").replace("}", "")
+        lines.append(f"Dialogue: 2,{_ts(a)},{_ts(b)},Stat,,0,0,0,,"
+                     r"{\fscx30\fscy30\t(0,140,\fscx112\fscy112)\t(140,240,\fscx100\fscy100)\fad(0,150)\c&H00E5FF&}" + t)
     if end_card and total > 2.5:          # "FOLLOW FOR MORE" button over the final seconds
         last = words[-1][1] if words else total - 1.8
         st = min(max(last - 0.3, total - 2.2), total - 1.2)
@@ -221,7 +242,7 @@ def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="
                 end_card="", end_sub="", log=print):
     """shots: list of {image, video?, audio, words:[(start,end,text) relative to its own audio]}"""
     workdir = Path(workdir)
-    clips, all_words, cuts, t0 = [], [], [], 0.0
+    clips, all_words, cuts, t0, overlays = [], [], [], 0.0, []
     for i, s in enumerate(shots, 1):
         clip = workdir / f"clip_{i:02d}.mp4"
         pad = (1.7 if end_card else 0.8) if i == len(shots) else 0.12   # room for the last line + end card
@@ -243,6 +264,8 @@ def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="
                 raise RuntimeError(f"shot {i}: picture is {vs:.1f}s but the voice is {d:.1f}s")
         clips.append(clip)
         all_words += [(t0 + a, t0 + b, txt) for a, b, txt in s["words"]]
+        if s.get("overlay"):
+            overlays.append((t0 + 0.15, t0 + d - 0.1, s["overlay"]))
         if i > 1:
             cuts.append(t0)
         t0 += d
@@ -264,7 +287,7 @@ def build_short(shots, workdir, out_path, music=None, hook_title="", watermark="
 
     fdir, font = _font(workdir)
     ass = workdir / "captions.ass"
-    _ass(all_words, font, ass, hook_title, watermark, t0, captions, end_card, end_sub)
+    _ass(all_words, font, ass, hook_title, watermark, t0, captions, end_card, end_sub, overlays)
     ass_arg = str(ass).replace("\\", "/").replace(":", r"\:")
     fd_arg = str(fdir).replace("\\", "/").replace(":", r"\:")
 
