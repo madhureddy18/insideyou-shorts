@@ -138,8 +138,11 @@ BRIGHT_RULES = f"""- VISUAL STYLE: a bright, clean, toy-like 3D world - glossy p
 - CAMERA: every shot is ONE continuous camera move - extreme macro close-ups, slow push-ins, orbits, or flying
   THROUGH things (into a joint, inside a device, between particles). Shallow depth of field. Say the move in
   "motion".
-- PEOPLE: the objects and the process are the stars. Show mainly realistic HANDS interacting with things (Hero's
-  hands, with his sleeves matching his outfit, so put "Hero" in characters). Show Hero's face in at most 2 shots.
+- PEOPLE (very important): tell the story THROUGH a person, like Zack D. Films. About HALF the shots show Hero
+  (or another cast member) - full body or waist-up, living the situation: doing the action, reacting with a clear
+  expression, feeling the effect. Alternate: person shot -> inside/macro "how it works" shot -> back to the
+  person seeing the result. The first or second shot and the last shot always show Hero. Pure machine/particle
+  shots never run more than 2 in a row. Put "Hero" in "characters" for every shot he appears in.
 - BRANDING here: put "{C.BRAND_TEXT}" on 1-2 objects only, like a real product logo (a box, machine, packaging,
   a sign), always where it fits naturally. Never the same object twice, and screens stay normal (no logo on a
   phone/TV screen in more than one shot)."""
@@ -205,6 +208,8 @@ Rules:
   phone screen, lab coat badge, helmet, mug. Write it in "brand_on" as a short phrase (e.g. "the label of the
   water bottle on the table"). Leave "brand_on" empty for cross-sections, X-rays and scenes with no fitting
   object - never force it. Never put it on skin or floating in the air.
+- REAL-LIFE CORRECTNESS: people behave safely and realistically - seatbelt on in any car, helmet on a bike,
+  goggles/gloves where a real person would wear them, natural reactions (no smiling right after an accident).
 - SAFETY (the video model blocks these): every person is FULLY CLOTHED in every shot (keep their outfit),
   never show bathing/showering/undressed bodies, no blood/gore, no injuries, no weapons. For water topics show
   hands or a clothed person by water, or a cross-section instead.
@@ -295,7 +300,16 @@ def step_script(job: Job):
     if own:
         sc = ai.text_json(_own_script_prompt(own, face, st.get("look")), temperature=0.5)
     else:
-        sc = ai.text_json(_script_prompt(topic, st.get("num_shots", 7), face, st.get("look")))
+        prompt = _script_prompt(topic, st.get("num_shots", 7), face, st.get("look"))
+        sc = ai.text_json(prompt)
+        need = max(2, round(len(sc.get("shots", [])) * 0.4))
+        people = sum(1 for s in sc.get("shots", []) if s.get("characters"))
+        if people < need:                     # mostly machines/particles: ask once more for a people-led story
+            job.log(f"Only {people} shots show a person - rewriting so the story follows Hero...")
+            sc2 = ai.text_json(prompt + f"\n\nIMPORTANT: at least {need} shots must show Hero (or another cast "
+                               f"member) living the situation, and Hero must be in the first or second and the last shot.")
+            if sum(1 for s in sc2.get("shots", []) if s.get("characters")) > people:
+                sc = sc2
     job.check()
     job.log("Fact-checking every claim...")
     try:
