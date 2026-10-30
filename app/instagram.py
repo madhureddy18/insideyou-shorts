@@ -12,24 +12,19 @@ import requests
 GRAPH = "https://graph.instagram.com"
 VER = "v26.0"
 CFG_KEY = "brand/instagram.json"
-
-
-def _key(acct=""):
-    """Settings file per Instagram account: "" = the Verse Films account, others e.g. "maddieandchotu"."""
-    return f"brand/instagram_{acct}.json" if acct else CFG_KEY
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 
 
-def cfg(store, acct=""):
-    return store.read_json(_key(acct)) or {}
+def cfg(store):
+    return store.read_json(CFG_KEY) or {}
 
 
-def _save(store, c, acct=""):
-    store.write_json(_key(acct), c)
+def _save(store, c):
+    store.write_json(CFG_KEY, c)
 
 
-def status(store, acct=""):
-    c = cfg(store, acct)
+def status(store):
+    c = cfg(store)
     return {"connected": bool(c.get("token")), "username": c.get("username", ""),
             "auto": bool(c.get("auto")), "time": c.get("time", "19:00"),
             "refreshed": c.get("refreshed", "")}
@@ -43,7 +38,7 @@ def _err(r):
         return f"{r.status_code}: {r.text[:200]}"
 
 
-def connect(store, token, acct=""):
+def connect(store, token):
     token = (token or "").strip()
     if len(token) < 20:
         raise RuntimeError("That doesn't look like an access token")
@@ -51,18 +46,18 @@ def connect(store, token, acct=""):
     if not r.ok:
         raise RuntimeError("Instagram rejected the token - " + _err(r))
     me = r.json()
-    c = cfg(store, acct)
+    c = cfg(store)
     c.update(token=token, user_id=str(me.get("user_id") or me.get("id")), username=me.get("username", ""),
              refreshed=dt.datetime.now(IST).isoformat(timespec="seconds"))
-    _save(store, c, acct)
-    return status(store, acct)
+    _save(store, c)
+    return status(store)
 
 
-def disconnect(store, acct=""):
-    c = cfg(store, acct)
+def disconnect(store):
+    c = cfg(store)
     for k in ("token", "user_id", "username", "refreshed"):
         c.pop(k, None)
-    _save(store, c, acct)
+    _save(store, c)
 
 
 def settings(store, auto=None, time_=None):
@@ -75,9 +70,9 @@ def settings(store, auto=None, time_=None):
     return status(store)
 
 
-def token(store, acct=""):
+def token(store):
     """The access token, refreshed every few days so it never expires (needs to be >24h old to refresh)."""
-    c = cfg(store, acct)
+    c = cfg(store)
     if not c.get("token"):
         raise RuntimeError("Instagram isn't connected - paste your token in Settings")
     try:
@@ -90,16 +85,16 @@ def token(store, acct=""):
         if r.ok and r.json().get("access_token"):
             c["token"] = r.json()["access_token"]
             c["refreshed"] = dt.datetime.now(IST).isoformat(timespec="seconds")
-            _save(store, c, acct)
+            _save(store, c)
         else:
             print("Instagram token refresh skipped:", _err(r), flush=True)
     return c["token"]
 
 
-def publish(store, video_url, caption, log=print, acct=""):
+def publish(store, video_url, caption, log=print):
     """Create a Reel from a public video URL, wait for Instagram to process it, publish it."""
-    tok = token(store, acct)
-    uid = cfg(store, acct)["user_id"]
+    tok = token(store)
+    uid = cfg(store)["user_id"]
     h = {"Authorization": f"Bearer {tok}"}
     r = requests.post(f"{GRAPH}/{VER}/{uid}/media", headers=h, timeout=60,
                       json={"media_type": "REELS", "video_url": video_url, "caption": caption[:2200],
