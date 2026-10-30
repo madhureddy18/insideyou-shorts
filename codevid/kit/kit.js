@@ -537,6 +537,56 @@
     return P;
   };
 
+  // Smooth low-poly "guy": realistic proportions, small round head, dot eyes, plain tee. Same pose API as makePerson.
+  K.makeGuy = ({ skin = 0xe9c4a6, hair = 0xe6d3a0, tee = 0x2f6fe4, pants = 0x3a3d46, shoes = 0x24262c, beard = null, sunglasses = false } = {}) => {
+    const P = K.makePerson({ skin, hair, top: tee, pants, shoes });
+    const { root, hip, head, neck, arms, legs, eyes, pupils, brows, mouth } = P;
+    root.traverse(o => { if (o.isMesh) o.visible = false; });                          // keep the rig, rebuild the look
+    const M = (c, r = 0.75) => K.M(c, { roughness: r, flatShading: true });
+    const skinM = M(skin, 0.6), teeM = M(tee, 0.85), pantsM = M(pants, 0.9), shoeM = M(shoes, 0.6), hairM = M(hair, 0.9), dark = M(0x111111, 0.4);
+    const mesh = (g, m, parent, x, y, z) => { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); o.castShadow = true; o.receiveShadow = true; parent.add(o); return o; };
+    const cap = (r, len, seg = 7) => new THREE.CapsuleGeometry(r, len, 3, seg);
+    // torso + neck
+    const torso = mesh(cap(0.25, 0.42, 9), teeM, hip, 0, 0.5, 0); torso.scale.set(1.3, 1, 0.78);
+    mesh(new THREE.CylinderGeometry(0.075, 0.085, 0.2, 8), skinM, hip, 0, 1.0, 0);
+    // head (built at makePerson's head scale, then shrunk)
+    head.scale.setScalar(0.56); head.position.y = 0.33;
+    const ball = mesh(new THREE.IcosahedronGeometry(0.42, 2), skinM, head, 0, 0, 0); ball.scale.set(0.92, 1.05, 0.95);
+    for (const sx of [-1, 1]) mesh(new THREE.SphereGeometry(0.08, 8, 6), skinM, head, sx * 0.39, 0.0, -0.02).scale.set(0.55, 1, 0.8);
+    mesh(new THREE.SphereGeometry(0.06, 8, 6), skinM, head, 0, -0.05, 0.4);
+    const hcap = mesh(new THREE.SphereGeometry(0.445, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.42), hairM, head, 0, 0.04, -0.02); hcap.scale.set(0.95, 1.08, 0.98); hcap.rotation.x = -0.18;
+    const fringe = mesh(new THREE.SphereGeometry(0.2, 8, 6), hairM, head, 0.12, 0.33, 0.24); fringe.scale.set(1.6, 0.6, 0.9); fringe.rotation.z = -0.2;
+    mesh(new THREE.SphereGeometry(0.16, 8, 6), hairM, head, -0.2, 0.36, 0.18).scale.set(1.2, 0.6, 1);
+    eyes.length = 0; pupils.length = 0; brows.length = 0;
+    for (const sx of [-1, 1]) {
+      eyes.push(mesh(new THREE.SphereGeometry(0.045, 8, 6), dark, head, sx * 0.14, 0.04, 0.37));
+      const b = mesh(new THREE.BoxGeometry(0.13, 0.03, 0.03), M(beard || hair, 0.9), head, sx * 0.15, 0.22, 0.34); brows.push(b);
+    }
+    mouth.visible = true; mouth.position.set(0, -0.19, 0.37); mouth.geometry = new THREE.BoxGeometry(0.12, 0.035, 0.02);
+    if (beard) {
+      const bm = M(beard, 1);
+      const sh = mesh(new THREE.SphereGeometry(0.435, 14, 8, 0, Math.PI, Math.PI * 0.66, Math.PI * 0.3), bm, head, 0, -0.01, 0.005); sh.scale.set(0.93, 1.06, 0.96);
+      mesh(cap(0.025, 0.2), bm, head, 0, -0.13, 0.385).rotation.z = Math.PI / 2;
+      mouth.position.z = 0.41;
+    }
+    if (sunglasses) {
+      eyes.forEach(e => e.visible = false);
+      const sm = new THREE.MeshStandardMaterial({ color: 0x07080b, roughness: 0.08, metalness: 0.85 });
+      for (const sx of [-1, 1]) { const l = mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.03, 16), sm, head, sx * 0.15, 0.05, 0.37); l.rotation.x = Math.PI / 2; l.scale.set(1.1, 1, 0.8); }
+      mesh(new THREE.BoxGeometry(0.62, 0.03, 0.03), sm, head, 0, 0.12, 0.37);
+    }
+    // arms: short sleeve + forearm + hand
+    arms.forEach((a, i) => { const sx = i ? 1 : -1; a.position.set(sx * 0.37, 0.84, 0);
+      mesh(cap(0.095, 0.16), teeM, a, 0, -0.12, 0);
+      mesh(cap(0.068, 0.5), skinM, a, 0, -0.46, 0);
+      mesh(new THREE.SphereGeometry(0.075, 8, 6), skinM, a, 0, -0.78, 0.01).scale.set(0.9, 1.15, 0.8); });
+    // legs: trousers + shoes
+    legs.forEach((l, i) => { const sx = i ? 1 : -1; l.position.x = sx * 0.14;
+      mesh(cap(0.115, 0.66), pantsM, l, 0, -0.42, 0);
+      const sh = mesh(cap(0.085, 0.16, 7), shoeM, l, 0, -0.9, 0.07); sh.rotation.x = Math.PI / 2; sh.scale.set(1.15, 1, 0.8); });
+    return P;
+  };
+
   // ------------------------------------------------------------------ boot (called by render.js with real voice timings)
   K.boot = (T) => {
     const S = window.SCENE;
