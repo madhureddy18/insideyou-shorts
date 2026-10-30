@@ -11,9 +11,7 @@ window.SCENE = {
     const rim = new THREE.DirectionalLight(0xffe2b8, 1.4); rim.position.set(2, 3, -4); K.add(rim);
     const grass = new THREE.Mesh(new THREE.CircleGeometry(20, 48), K.M(0x1d3324, { roughness: 1, flatShading: true })); grass.rotation.x = -Math.PI / 2; grass.receiveShadow = true; K.add(grass);
     const A = K.makeGuy({}); A.root.position.set(-0.7, 0, 0); A.root.rotation.y = 0.15;
-    const B = K.model('assets/chars/worker.glb', { height: 2.15, colors: { Shirt: 0x2f6fe4, Hair: 0xdcc58a, Pants: 0x2b2e36, Socks: 0xeeeeee, Skin: 0xf0c9a8 } });
-    B.play('Man_Idle', 0);
-    const H = K.guyHead({}); K.swapHead(B, H, { offset: [0, 0.19, 0.01], scale: 0.335 });
+    const B = K.makeMaddieV3(); const H = B.head;
     B.g.position.set(0.7, 0, 0); B.g.rotation.y = -0.15;
     const lab = (t, x) => { const c = K.card({ w: 0.36, h: 0.36, bg: '#ffc53d', radius: 0.18, shadow: false }); c.draw((g, W, H) => K.text(g, t, W / 2, H * 0.56, { size: 56, color: '#0b1020' }), 1); c.g.position.set(x, 2.55, 0.3); };
     lab('1', -0.7); lab('2', 0.7);

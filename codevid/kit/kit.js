@@ -699,6 +699,67 @@
     };
     return g;
   };
+  // Clothing that follows a bone: a tapered tube from the bone's start to its child (e.g. sleeves, trouser legs).
+  K.boneTube = (model, boneName, { r1 = 0.07, r2 = 0.06, color = 0x1f2a44, from = 0, to = 1, mat = null, seg = 10 } = {}) => {
+    let bone = null; model.g.traverse(o => { if (o.isBone && o.name === boneName) bone = o; });
+    if (!bone) throw new Error('bone not found: ' + boneName);
+    const child = bone.children.find(c => c.isBone);
+    const ws = bone.getWorldScale(new THREE.Vector3()).x;
+    const dir = child ? child.position.clone().normalize() : new THREE.Vector3(0, 1, 0);
+    const len = child ? child.position.length() : 0.3 / (ws || 1);
+    const h = (to - from) * len;
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r2 / ws, r1 / ws, h, seg), mat || K.M(color, { roughness: 0.85, flatShading: true }));
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);       // tube runs from this joint to the next
+    m.position.copy(dir).multiplyScalar((from + to) / 2 * len); m.castShadow = true; m.frustumCulled = false; bone.add(m);
+    return m;
+  };
+  // Something stuck to a bone in the bone's own space (scaled to world units).
+  K.boneThing = (model, boneName, obj, { pos = [0, 0, 0], rot = [0, 0, 0] } = {}) => {
+    let bone = null; model.g.traverse(o => { if (o.isBone && o.name === boneName) bone = o; });
+    const ws = bone.getWorldScale(new THREE.Vector3()).x, h = new THREE.Group();
+    h.scale.setScalar(1 / ws); h.position.set(...pos.map(v => v / ws)); h.rotation.set(...rot); h.add(obj); bone.add(h);
+    obj.traverse(o => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+    return h;
+  };
+  // Clothing shell from the model's own skin: copies the triangles driven by the given bones, puffs them out a little,
+  // and skins them to the same skeleton - so sleeves / trouser legs fit and bend perfectly with every animation.
+  K.shellByBones = (model, bones, mat, { inflate = 0.012, matName = 'Skin', minWeight = 0.5 } = {}) => {
+    const want = new Set(bones), made = [];
+    const meshes = []; model.g.traverse(o => { if (o.isSkinnedMesh) meshes.push(o); });
+    for (const o of meshes) {
+      const geo = o.geometry, mats = [].concat(o.material);
+      const names = o.skeleton.bones.map(b => b.name);
+      const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight, pos = geo.attributes.position;
+      if (!si) continue;
+      geo.computeBoundingBox(); const size = geo.boundingBox.getSize(new THREE.Vector3()).length();
+      const groups = geo.groups.length ? geo.groups : [{ start: 0, count: (geo.index ? geo.index.count : pos.count), materialIndex: 0 }];
+      const idx = geo.index ? geo.index.array : null, keep = [];
+      const ok = v => { let w = 0; for (let k = 0; k < 4; k++) if (want.has(names[si.getComponent(v, k)])) w += sw.getComponent(v, k); return w >= minWeight; };
+      for (const g of groups) {
+        if (mats[g.materialIndex || 0].name !== matName) continue;
+        for (let i = g.start; i < g.start + g.count; i += 3) {
+          const a = idx ? idx[i] : i, b = idx ? idx[i + 1] : i + 1, c = idx ? idx[i + 2] : i + 2;
+          if (ok(a) && ok(b) && ok(c)) keep.push(a, b, c);
+        }
+      }
+      if (!keep.length) continue;
+      const ng = new THREE.BufferGeometry();
+      for (const k of ['position', 'normal', 'skinIndex', 'skinWeight']) if (geo.attributes[k]) ng.setAttribute(k, geo.attributes[k].clone());
+      ng.setIndex(keep);
+      if (!ng.attributes.normal) ng.computeVertexNormals();
+      const P = ng.attributes.position, N = ng.attributes.normal;
+      // average normals of vertices that share a position (split low-poly edges) so the shell has no cracks
+      const avg = new Map(), key = v => `${P.getX(v).toFixed(4)},${P.getY(v).toFixed(4)},${P.getZ(v).toFixed(4)}`;
+      for (let v = 0; v < P.count; v++) { const k = key(v), a = avg.get(k) || [0, 0, 0]; a[0] += N.getX(v); a[1] += N.getY(v); a[2] += N.getZ(v); avg.set(k, a); }
+      const moved = [];
+      for (let v = 0; v < P.count; v++) { const a = avg.get(key(v)), l = Math.hypot(...a) || 1; moved.push([P.getX(v) + a[0] / l * inflate * size, P.getY(v) + a[1] / l * inflate * size, P.getZ(v) + a[2] / l * inflate * size]); }
+      moved.forEach((m, v) => P.setXYZ(v, ...m));
+      const sm = new THREE.SkinnedMesh(ng, mat); sm.castShadow = true; sm.frustumCulled = false;
+      o.parent.add(sm); sm.position.copy(o.position); sm.quaternion.copy(o.quaternion); sm.scale.copy(o.scale);
+      sm.bind(o.skeleton, o.bindMatrix); made.push(sm);
+    }
+    return made;
+  };
   // Put a custom head on a rigged model: hides the model's own head (Head bone shrunk) and rides the Neck bone.
   K.swapHead = (model, headObj, { offset = [0, 0.2, 0.01], scale = 0.36, neckBone = 'Neck', headBone = 'Head' } = {}) => {
     let hb = null; model.g.traverse(o => { if (o.isBone && o.name === headBone) hb = o; });
@@ -746,6 +807,36 @@
         if (loop) local %= clip.duration; else local = Math.min(local, clip.duration - 1e-3);
         mixer.setTime(local);
       } };
+  };
+
+  // MADDIE (locked look): Quaternius CC0 body, v1 round face + swept hair, navy hoodie, beige trousers, a bit bulkier.
+  // Needs 'assets/chars/worker.glb' in SCENE.assets. Returns the model with .head (blink/talk via head.update) and .play().
+  K.MADDIE_ASSET = 'assets/chars/worker.glb';
+  K.makeMaddieV3 = ({ height = 2.15, bulk = 1.12, hoodie = 0x1f2a44, pants = 0xcdb894, skin = 0xf0c9a8, hair = 0xdcc58a } = {}) => {
+    const M = K.model(K.MADDIE_ASSET, { height, colors: { Shirt: hoodie, Pants: pants, Skin: skin, Socks: 0xf2f2f2 } });
+    M.play('Man_Idle', 0); M.g.updateMatrixWorld(true);
+    const hoodM = K.M(hoodie, { roughness: 0.9, flatShading: true, side: THREE.DoubleSide }), pantM = K.M(pants, { roughness: 0.9, flatShading: true, side: THREE.DoubleSide });
+    // long sleeves + full-length trousers: shells made from the model's own arm / leg skin
+    K.shellByBones(M, ['UpperArmL', 'UpperArmR', 'LowerArmL', 'LowerArmR'], hoodM, { inflate: 0.008, minWeight: 0.2 });
+    K.shellByBones(M, ['UpperLegL', 'UpperLegR', 'LowerLegL', 'LowerLegR'], pantM, { inflate: 0.007, minWeight: 0.2 });
+    // hood (rolled behind the neck), front pocket, drawstrings
+    const hood = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.6), hoodM);
+    hood.scale.set(1.15, 0.55, 0.75); hood.rotation.x = -0.5;
+    const hoodG = new THREE.Group(); hoodG.add(hood); K.attachToBone(M, 'Neck', hoodG, { offset: [0, -0.03, -0.075], scale: 1 });
+    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.088, 0.034, 8, 18), K.M(0x24304d, { roughness: 0.9, flatShading: true }));
+    collar.rotation.x = Math.PI / 2 - 0.25; collar.scale.set(1.08, 1, 0.9);
+    const colG = new THREE.Group(); colG.add(collar); K.attachToBone(M, 'Neck', colG, { offset: [0, -0.045, -0.005], scale: 1 });
+    const front = new THREE.Group();
+    const pocket = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.11, 0.02), K.M(0x1a2440, { roughness: 0.9, flatShading: true })); pocket.position.set(0, -0.2, 0.135); front.add(pocket);
+    for (const sx of [-1, 1]) { const st = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.13, 5), K.M(0xe8e8e8)); st.position.set(sx * 0.035, 0.12, 0.14); front.add(st); }
+    K.attachToBone(M, 'Torso', front, { offset: [0, 0, 0], scale: 1 });
+    // bulk: wider and deeper, same height; the head is scaled back so it stays round
+    M.g.scale.x *= bulk; M.g.scale.z *= bulk * 0.97;
+    const head = K.guyHead({ skin, hair });
+    const holder = K.swapHead(M, head, { offset: [0, 0.19, 0.01], scale: 0.335 });
+    head.scale.x /= bulk; head.scale.z /= bulk * 0.97;
+    M.head = head;
+    return M;
   };
 
   // ------------------------------------------------------------------ boot (called by render.js with real voice timings)
