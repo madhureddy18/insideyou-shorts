@@ -5,10 +5,10 @@ window.SCENE = {
 
   build(K) {
     const THREE = window.THREE;
-    K.gradientBg('#07070b', '#1d1606', 'rgba(255,190,60,0.35)');
+    K.scene.background = new THREE.Color(0x000000);
     K.lights('studio');
-    const rays = K.sunburst({ r: 9, rays: 22, a: 'rgba(255,196,61,0.22)' }); rays.position.set(0, 1.7, -3.2); rays.rotation.z = 0.12;
-    const floor = new THREE.Mesh(new THREE.CircleGeometry(30, 64), K.M(0x120e06, { roughness: 0.25, metalness: 0.5 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; K.add(floor);
+    
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(30, 64), K.M(0x050505, { roughness: 0.3, metalness: 0.5 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; K.add(floor);
     // rim lights: gold + magenta for drama
     const rimA = new THREE.PointLight(0xffb020, 30, 12); rimA.position.set(-2.6, 3.0, -1.2); K.add(rimA);
     const rimB = new THREE.PointLight(0xff3d7f, 18, 12); rimB.position.set(2.8, 2.4, -1.0); K.add(rimB);
@@ -46,10 +46,10 @@ window.SCENE = {
     // right arm forward with pistol held sideways, left arm fanning cash
     const gunM = pistol(); gunM.position.set(0, -0.86, 0.02); gunM.rotation.y = -Math.PI / 2; gunM.scale.setScalar(1.3); m.arms[0].add(gunM);
     m.arms[0].rotation.set(-1.45, 0, -0.22);
-    m.arms[1].rotation.set(-0.7, 0, -0.25);
+    m.arms[1].rotation.set(0, 0, 0.12);
     const fan = new THREE.Group(); const mats = K.bundleMaterials(500);
     for (let i = 0; i < 5; i++) { const n = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.008, 0.24), mats[2] || mats); n.position.set(0, 0, 0); const h = new THREE.Group(); h.add(n); n.position.x = 0.22; h.rotation.y = -0.5 + i * 0.25; fan.add(h); }
-    fan.rotation.set(Math.PI / 2, 0, 0); fan.position.set(0, -0.9, 0.08); m.arms[1].add(fan);
+    fan.rotation.set(Math.PI / 2, 0, 0); fan.position.set(0, -0.9, 0.08); 
 
     // ---------- Chotu: shades, black fedora, chain, pistol
     const c = K.makeChotu();
@@ -67,12 +67,6 @@ window.SCENE = {
     const gunC = pistol(); gunC.scale.setScalar(1.15); gunC.position.set(0, -0.34, 0.02); gunC.rotation.y = Math.PI / 2; c.arms[1].add(gunC);
     c.arms[1].rotation.set(-1.45, 0, 0.2);
     c.arms[0].rotation.set(0, 0, 0.6);
-
-    // money rain + coins
-    const r = K.rng(21), notes = [];
-    for (let i = 0; i < 46; i++) { const n = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.006, 0.17), mats[2] || mats); n.position.set((r() - 0.5) * 6.5, 0.3 + r() * 4.6, -2.2 + r() * 2.6); n.rotation.set(r() * 6, r() * 6, r() * 6); n.castShadow = true; K.add(n); notes.push(n); }
-    for (let i = 0; i < 14; i++) { const k = K.makeCoin({ r: 0.12 + r() * 0.08 }); k.position.set((r() - 0.5) * 6, 0.4 + r() * 4, -2.8 + r() * 2.2); k.rotation.set(r() * 6, r() * 6, r() * 6); }
-    for (let i = 0; i < 6; i++) { const b = K.makeBundle({ mats }); b.position.set(-0.15 + (i % 3) * 0.12 - 0.12, 0.07 + Math.floor(i / 3) * 0.145, 1.0 + (i % 2) * 0.05); b.rotation.y = 0.2 + i * 0.3; }
 
     const shots = [{ t: [0, 99], from: { pos: [0.05, 1.5, 7.3], look: [0.05, 1.42, 0] } }];
     return { duration: 1, update: () => {}, shots, watermark: '', endCard: false };
