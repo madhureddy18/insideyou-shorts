@@ -538,7 +538,7 @@
   };
 
   // Smooth low-poly "guy": realistic proportions, small round head, dot eyes, plain tee. Same pose API as makePerson.
-  K.makeGuy = ({ skin = 0xe9c4a6, hair = 0xe6d3a0, tee = 0x2f6fe4, pants = 0x3a3d46, shoes = 0x24262c, beard = null, sunglasses = false } = {}) => {
+  K.makeGuy = ({ skin = 0xe9c4a6, hair = 0xdcc58a, tee = 0x2f6fe4, pants = 0x3a3d46, shoes = 0x24262c, beard = null, sunglasses = false } = {}) => {
     const P = K.makePerson({ skin, hair, top: tee, pants, shoes });
     const { root, hip, head, neck, arms, legs, eyes, pupils, brows, mouth } = P;
     root.traverse(o => { if (o.isMesh) o.visible = false; });                          // keep the rig, rebuild the look
@@ -546,23 +546,36 @@
     const skinM = M(skin, 0.6), teeM = M(tee, 0.85), pantsM = M(pants, 0.9), shoeM = M(shoes, 0.6), hairM = M(hair, 0.9), dark = M(0x111111, 0.4);
     const mesh = (g, m, parent, x, y, z) => { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); o.castShadow = true; o.receiveShadow = true; parent.add(o); return o; };
     const cap = (r, len, seg = 7) => new THREE.CapsuleGeometry(r, len, 3, seg);
-    // torso + neck
-    const torso = mesh(cap(0.25, 0.42, 9), teeM, hip, 0, 0.5, 0); torso.scale.set(1.3, 1, 0.78);
-    mesh(new THREE.CylinderGeometry(0.075, 0.085, 0.2, 8), skinM, hip, 0, 1.0, 0);
-    // head (built at makePerson's head scale, then shrunk)
-    head.scale.setScalar(0.56); head.position.y = 0.33;
-    const ball = mesh(new THREE.IcosahedronGeometry(0.42, 2), skinM, head, 0, 0, 0); ball.scale.set(0.92, 1.05, 0.95);
-    for (const sx of [-1, 1]) mesh(new THREE.SphereGeometry(0.08, 8, 6), skinM, head, sx * 0.39, 0.0, -0.02).scale.set(0.55, 1, 0.8);
+    const taper = (r1, r2, h, seg = 9) => new THREE.CylinderGeometry(r1, r2, h, seg);
+    const ico = (r, d = 1) => new THREE.IcosahedronGeometry(r, d);
+    // pelvis (waistband), torso tapering from chest to waist, rounded shoulders, neck
+    mesh(taper(0.235, 0.215, 0.2), pantsM, hip, 0, 0.02, 0).scale.z = 0.66;
+    const torso = mesh(taper(0.3, 0.235, 0.62, 12), teeM, hip, 0, 0.39, 0); torso.scale.z = 0.64;
+    const top = mesh(new THREE.SphereGeometry(0.3, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), teeM, hip, 0, 0.695, 0); top.scale.set(1, 0.22, 0.64);
+    for (const sx of [-1, 1]) mesh(new THREE.SphereGeometry(0.105, 12, 8), teeM, hip, sx * 0.25, 0.64, 0).scale.set(1.1, 0.75, 0.9);
+    mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.03, 12), M(0x1f55c4, 0.85), hip, 0, 0.73, 0.0).scale.z = 0.8;     // collar ring
+    mesh(taper(0.064, 0.072, 0.12, 10), skinM, hip, 0, 0.76, 0);
+    neck.position.y = 0.72;
+    // head (built at makePerson's head scale, then shrunk to human proportions)
+    head.scale.setScalar(0.47); head.position.y = 0.24;
+    const ball = mesh(ico(0.42, 2), skinM, head, 0, 0, 0); ball.scale.set(0.9, 1.08, 0.95);
+    const jaw = mesh(ico(0.3, 2), skinM, head, 0, -0.18, 0.05); jaw.scale.set(1, 0.7, 0.95);
+    for (const sx of [-1, 1]) mesh(new THREE.SphereGeometry(0.08, 8, 6), skinM, head, sx * 0.38, 0.0, -0.02).scale.set(0.55, 1, 0.8);
     mesh(new THREE.SphereGeometry(0.06, 8, 6), skinM, head, 0, -0.05, 0.4);
-    const hcap = mesh(new THREE.SphereGeometry(0.445, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.42), hairM, head, 0, 0.04, -0.02); hcap.scale.set(0.95, 1.08, 0.98); hcap.rotation.x = -0.18;
-    const fringe = mesh(new THREE.SphereGeometry(0.2, 8, 6), hairM, head, 0.12, 0.33, 0.24); fringe.scale.set(1.6, 0.6, 0.9); fringe.rotation.z = -0.2;
-    mesh(new THREE.SphereGeometry(0.16, 8, 6), hairM, head, -0.2, 0.36, 0.18).scale.set(1.2, 0.6, 1);
+    // hair: textured, side-swept short cut (low-poly tufts)
+    const hcap = mesh(new THREE.SphereGeometry(0.445, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.44), hairM, head, 0, 0.03, -0.03); hcap.scale.set(0.93, 1.08, 0.98); hcap.rotation.x = -0.22;
+    const topv = mesh(ico(0.3, 1), hairM, head, -0.02, 0.36, 0.0); topv.scale.set(1.3, 0.55, 1.25);
+    [[-0.2, 0.36, 0.22, 0.15], [-0.02, 0.4, 0.27, 0.17], [0.17, 0.37, 0.25, 0.15], [0.3, 0.27, 0.18, 0.11], [-0.32, 0.25, 0.1, 0.11]].forEach(([x, y, z, r], i) => {
+      const t = mesh(ico(r, 1), hairM, head, x, y, z); t.scale.set(1.5, 0.55, 0.9); t.rotation.set(0.35, 0.1 * i, -0.38 + i * 0.04);
+    });
+    for (let i = 0; i < 7; i++) { const t = mesh(ico(0.09, 0), hairM, head, -0.24 + i * 0.08, 0.47 + (i % 2) * 0.03, 0.04 - (i % 3) * 0.1); t.rotation.set(0.6, i, -0.5); t.scale.set(1.6, 0.6, 1); }
+    for (const sx of [-1, 1]) { const sd = mesh(ico(0.16, 1), hairM, head, sx * 0.36, 0.2, -0.06); sd.scale.set(0.45, 0.8, 1.15); }
     eyes.length = 0; pupils.length = 0; brows.length = 0;
     for (const sx of [-1, 1]) {
       eyes.push(mesh(new THREE.SphereGeometry(0.045, 8, 6), dark, head, sx * 0.14, 0.04, 0.37));
       const b = mesh(new THREE.BoxGeometry(0.13, 0.03, 0.03), M(beard || hair, 0.9), head, sx * 0.15, 0.22, 0.34); brows.push(b);
     }
-    mouth.visible = true; mouth.position.set(0, -0.19, 0.37); mouth.geometry = new THREE.BoxGeometry(0.12, 0.035, 0.02);
+    mouth.visible = true; mouth.position.set(0, -0.19, 0.37); mouth.geometry = new THREE.BoxGeometry(0.1, 0.028, 0.02); mouth.position.z = 0.385;
     if (beard) {
       const bm = M(beard, 1);
       const sh = mesh(new THREE.SphereGeometry(0.435, 14, 8, 0, Math.PI, Math.PI * 0.66, Math.PI * 0.3), bm, head, 0, -0.01, 0.005); sh.scale.set(0.93, 1.06, 0.96);
@@ -575,15 +588,20 @@
       for (const sx of [-1, 1]) { const l = mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.03, 16), sm, head, sx * 0.15, 0.05, 0.37); l.rotation.x = Math.PI / 2; l.scale.set(1.1, 1, 0.8); }
       mesh(new THREE.BoxGeometry(0.62, 0.03, 0.03), sm, head, 0, 0.12, 0.37);
     }
-    // arms: short sleeve + forearm + hand
-    arms.forEach((a, i) => { const sx = i ? 1 : -1; a.position.set(sx * 0.37, 0.84, 0);
-      mesh(cap(0.095, 0.16), teeM, a, 0, -0.12, 0);
-      mesh(cap(0.068, 0.5), skinM, a, 0, -0.46, 0);
-      mesh(new THREE.SphereGeometry(0.075, 8, 6), skinM, a, 0, -0.78, 0.01).scale.set(0.9, 1.15, 0.8); });
-    // legs: trousers + shoes
-    legs.forEach((l, i) => { const sx = i ? 1 : -1; l.position.x = sx * 0.14;
-      mesh(cap(0.115, 0.66), pantsM, l, 0, -0.42, 0);
-      const sh = mesh(cap(0.085, 0.16, 7), shoeM, l, 0, -0.9, 0.07); sh.rotation.x = Math.PI / 2; sh.scale.set(1.15, 1, 0.8); });
+    // arms: sleeve over the upper arm, bare upper arm, forearm, hand
+    arms.forEach((a, i) => { const sx = i ? 1 : -1; a.position.set(sx * 0.31, 0.64, 0);
+      mesh(taper(0.1, 0.09, 0.24, 10), teeM, a, 0, -0.08, 0);
+      mesh(taper(0.076, 0.068, 0.18, 10), skinM, a, 0, -0.27, 0);
+      mesh(new THREE.SphereGeometry(0.068, 10, 8), skinM, a, 0, -0.37, 0);
+      mesh(taper(0.066, 0.052, 0.3, 10), skinM, a, 0, -0.52, 0);
+      const hand = mesh(ico(0.06, 1), skinM, a, 0, -0.71, 0.01); hand.scale.set(0.8, 1.35, 0.6); });
+    // legs: thigh, knee, calf, shoe
+    legs.forEach((l, i) => { const sx = i ? 1 : -1; l.position.x = sx * 0.12;
+      mesh(taper(0.115, 0.085, 0.5), pantsM, l, 0, -0.25, 0);
+      mesh(new THREE.SphereGeometry(0.084, 10, 8), pantsM, l, 0, -0.5, 0);
+      mesh(taper(0.082, 0.062, 0.4), pantsM, l, 0, -0.71, 0);
+      const sh = mesh(ico(0.1, 1), shoeM, l, 0, -0.95, 0.06); sh.scale.set(0.95, 0.55, 1.75);
+      mesh(new THREE.BoxGeometry(0.17, 0.03, 0.33), M(0xdedede, 0.7), l, 0, -0.99, 0.06); });
     return P;
   };
 
