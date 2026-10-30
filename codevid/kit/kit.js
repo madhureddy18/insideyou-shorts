@@ -617,6 +617,63 @@
     for (const sx of [-1, 1]) { const sd = mesh(ico(0.16, 1), sx * 0.36, 0.2, -0.06); sd.scale.set(0.45, 0.8, 1.15); }
     return g;
   };
+  // One-piece side-swept haircut: a sculpted shell (volume on top, lifted front, swept to one side), low-poly shaded.
+  // Built for a head of radius ~0.42 centred at the origin.
+  K.cleanHair = (color = 0xdcc58a, { sweep = 1 } = {}) => {
+    const mat = K.M(color, { roughness: 0.85, flatShading: true });
+    const R = 0.44, geo = new THREE.SphereGeometry(R, 26, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
+    const p = geo.attributes.position, v = new THREE.Vector3(), rnd = K.rng(11);
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i);
+      const up = v.y / R, fz = v.z / R, front = Math.max(0, fz), ang = Math.atan2(v.x, v.z);
+      // hairline: low at the back and sides, raised at the forehead
+      const hairline = 0.2 + front * front * 0.32;
+      if (up < hairline) { v.y = hairline * R; }
+      // volume: thicker on top, extra lift at the front (the quiff), brushed to one side
+      const lift = Math.pow(Math.max(0, up), 1.5) * 0.11 + front * Math.pow(Math.max(0, up), 0.8) * 0.13;
+      v.y += lift; v.z += front * up * 0.06;
+      v.x += sweep * Math.max(0, up - 0.3) * 0.09;
+      // texture: little tufts so it reads as hair, not a cap
+      const n = (Math.sin(ang * 9 + up * 6) * 0.5 + 0.5) * 0.018 * up + (rnd() - 0.5) * 0.008;
+      v.addScaledVector(v.clone().normalize(), n);
+      p.setXYZ(i, v.x, v.y, v.z);
+    }
+    geo.computeVertexNormals();
+    const g = new THREE.Group(), shell = new THREE.Mesh(geo, mat);
+    shell.scale.set(1.0, 1.0, 1.04); shell.castShadow = true; g.add(shell);
+    // short sides / back so the head isn't bald below the shell
+    const sides = new THREE.Mesh(new THREE.SphereGeometry(R * 0.985, 22, 10, 0, Math.PI * 2, Math.PI * 0.42, Math.PI * 0.2), mat);
+    sides.rotation.x = -0.25; sides.castShadow = true; g.add(sides);
+    return g;
+  };
+  // Restyle a model's own hair mesh (stays skinned to the head): more volume on top, lifted + swept fringe.
+  K.styleModelHair = (model, { matName = 'Hair', color = null, lift = 0.3, front = 0.45, sweep = 0.16 } = {}) => {
+    const list = []; model.g.traverse(o => { if (o.isMesh && [].concat(o.material).some(m => m.name === matName)) list.push(o); });
+    list.forEach(o => {
+      if (color != null) [].concat(o.material).forEach(m => m.color.set(color));
+      if (o.userData.styled) return; o.userData.styled = true;
+      const top = o.clone(); top.userData.styled = true; o.parent.add(top);     // styled layer on top; the original stays underneath so no scalp shows
+      if (top.isSkinnedMesh) top.bind(o.skeleton, o.bindMatrix);
+      const geo = o.geometry.clone(); top.geometry = geo;
+      const p = geo.attributes.position; geo.computeBoundingBox();
+      const bb = geo.boundingBox, c = bb.getCenter(new THREE.Vector3()), sz = bb.getSize(new THREE.Vector3());
+      // figure out which local axis is "up" and which is "forward" from the bind pose: up = largest extent above the face
+      const v = new THREE.Vector3();
+      for (let i = 0; i < p.count; i++) {
+        v.fromBufferAttribute(p, i);
+        // Quaternius meshes are Z-up with the face towards -Y in bind space
+        const u = (v.z - c.z) / (sz.z / 2), f = -(v.y - c.y) / (sz.y / 2);      // up, forward: -1..1
+        if (u > -0.3) {
+          const k = Math.pow((u + 0.3) / 1.3, 1.5);
+          v.z += k * lift * sz.z * 0.55 + Math.max(0, f) * k * front * sz.z * 0.5;   // volume on top, quiff at the front
+          v.y -= Math.max(0, f) * k * front * sz.y * 0.12;                            // fringe leans forward a touch
+          v.x += k * sweep * sz.x * 0.35;                                             // brushed to one side
+        }
+        p.setXYZ(i, v.x, v.y, v.z);
+      }
+      geo.computeVertexNormals();
+    });
+  };
   // Attach an object to a model's bone so it follows the animation. offset/rot/scale are in the model's own upright frame.
   K.attachToBone = (model, boneName, obj, { offset = [0, 0, 0], scale = 1, rot = [0, 0, 0] } = {}) => {
     let bone = null; model.g.traverse(o => { if (o.isBone && o.name === boneName) bone = o; });

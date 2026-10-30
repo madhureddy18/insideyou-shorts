@@ -13,8 +13,7 @@ window.SCENE = {
     const A = K.makeGuy({}); A.root.position.set(-0.7, 0, 0); A.root.rotation.y = 0.15;
     const B = K.model('assets/chars/worker.glb', { height: 2.15, colors: { Shirt: 0x2f6fe4, Hair: 0xdcc58a, Pants: 0x2b2e36, Socks: 0xeeeeee, Skin: 0xf0c9a8 } });
     B.play('Man_Idle', 0);
-    B.g.traverse(o => { if (o.isMesh && [].concat(o.material).some(m => m.name === 'Hair')) o.visible = false; });   // swap the model's hair for the swept cut
-    K.attachToBone(B, 'Head', K.sweptHair(0xdcc58a), { offset: [0, 0.145, -0.01], scale: 0.345 });
+    K.styleModelHair(B, { color: 0xdcc58a });
     B.g.position.set(0.7, 0, 0); B.g.rotation.y = -0.15;
     const lab = (t, x) => { const c = K.card({ w: 0.36, h: 0.36, bg: '#ffc53d', radius: 0.18, shadow: false }); c.draw((g, W, H) => K.text(g, t, W / 2, H * 0.56, { size: 56, color: '#0b1020' }), 1); c.g.position.set(x, 2.55, 0.3); };
     lab('1', -0.7); lab('2', 0.7);
@@ -22,8 +21,9 @@ window.SCENE = {
       B.play(t < 1 ? 'Man_Idle' : t < 2 ? 'Man_Idle' : 'Man_Walk', t); };
     const shots = [
       { t: [0, 1], from: { pos: [0.55, 1.98, 1.5], look: [0.66, 1.92, 0] } },
+      { t: [3, 4], from: { pos: [1.35, 2.0, 1.0], look: [0.66, 1.92, 0] } },
       { t: [1, 3], from: { pos: [0, 1.25, 6.4], look: [0, 1.1, 0] } },
     ];
-    return { duration: 3, update, shots, watermark: '', endCard: false };
+    return { duration: 4, update, shots, watermark: '', endCard: false };
   },
 };
