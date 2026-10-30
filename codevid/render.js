@@ -78,6 +78,9 @@ const SFX = {
   kaching: "aevalsrc='0.5*sin(2*PI*1568*t)*exp(-5*t)+0.4*sin(2*PI*2093*t)*exp(-5*t)*gte(t,0.09)+0.25*sin(2*PI*3136*t)*exp(-8*t)':s=44100:d=1.4",
   thud: "aevalsrc='1.0*sin(2*PI*(60+40*exp(-t*20))*t)*exp(-8*t)':s=44100:d=0.6",
   rustle: 'anoisesrc=d=2.8:c=pink:a=0.6,bandpass=f=3500:w=2500,tremolo=f=11:d=0.6,afade=t=in:d=0.3,afade=t=out:st=1.8:d=1',
+  zap: "aevalsrc='0.32*sin(2*PI*(2400-1700*t/0.4)*t)*exp(-5*t)':s=44100:d=0.4",
+  beep: "aevalsrc='0.3*sin(2*PI*1500*t)*exp(-38*t)':s=44100:d=0.12",
+  chime: "aevalsrc='0.4*sin(2*PI*988*t)*exp(-7*t)*lt(t,0.15)+0.45*sin(2*PI*1319*t)*exp(-4*(t-0.14))*gte(t,0.14)':s=44100:d=1.1",
   boing: "aevalsrc='0.7*sin(2*PI*(180+520*t)*t)*exp(-4*t)':s=44100:d=0.7",
 };
 function music(D, m) {

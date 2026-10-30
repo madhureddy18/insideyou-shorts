@@ -20,12 +20,13 @@ VOICES = {
     "maddie": (18, 1.08),    # am_puck    - bright, energetic, curious
     "chotu": (16, 1.0),      # am_michael - warm, confident explainer
     "narrator": (16, 1.0),
+    "speaker": (33, 0.95),   # Hindi female voice for the payment soundbox
     "raju": (18, 1.08), "bloc": (16, 0.98),
 }
 # exact pronunciations for our names / Indian words (Kokoro phoneme symbols, space separated)
 CUSTOM = {
     "maddie": "m ˈ æ d i", "chotu": "ʧ ˈ O t u", "chotus": "ʧ ˈ O t u z", "lakh": "l ˈ ɑ k", "lakhs": "l ˈ ɑ k s",
-    "crore": "k ɹ ˈ O ɹ", "crores": "k ɹ ˈ O ɹ z", "paisa": "p ˈ I s ə", "rupees": "ɹ u p ˈ i z",
+    "crore": "k ɹ ˈ O ɹ", "crores": "k ɹ ˈ O ɹ z", "paisa": "p ˈ I s ə", "rupees": "ɹ u p ˈ i z", "wala": "w ˈ ɑ l ə", "wala's": "w ˈ ɑ l ə z", "chai": "ʧ ˈ I",
 }
 ESPEAK_MAP = [("aɪ", "I"), ("aʊ", "W"), ("eɪ", "A"), ("ɔɪ", "Y"), ("oʊ", "O"), ("əʊ", "O"), ("tʃ", "ʧ"), ("dʒ", "ʤ"),
               ("ɚ", "əɹ"), ("ɝ", "ɜɹ"), ("ɾ", "T"), ("ɐ", "ə"), ("ᵻ", "ɪ"), ("r", "ɹ"), ("ː", ""), ("ʔ", ""), ("̩", "")]
