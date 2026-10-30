@@ -674,6 +674,40 @@
       geo.computeVertexNormals();
     });
   };
+  // The version-1 head on its own (round low-poly face, dot eyes, nose, ears, swept hair), for putting on any body.
+  // Built for radius ~0.42 at the origin. head.update(t, {talking, face}) blinks and moves the mouth.
+  K.guyHead = ({ skin = 0xe9c4a6, hair = 0xdcc58a } = {}) => {
+    const g = new THREE.Group();
+    const skinM = K.M(skin, { roughness: 0.6, flatShading: true }), dark = K.M(0x111111, { roughness: 0.4 });
+    const mesh = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; g.add(o); return o; };
+    mesh(new THREE.IcosahedronGeometry(0.42, 2), skinM, 0, 0, 0).scale.set(0.9, 1.08, 0.95);
+    mesh(new THREE.IcosahedronGeometry(0.3, 2), skinM, 0, -0.18, 0.05).scale.set(1, 0.7, 0.95);
+    for (const sx of [-1, 1]) mesh(new THREE.SphereGeometry(0.08, 8, 6), skinM, sx * 0.38, 0.0, -0.02).scale.set(0.55, 1, 0.8);
+    mesh(new THREE.SphereGeometry(0.06, 8, 6), skinM, 0, -0.05, 0.4);
+    const eyes = [-1, 1].map(sx => mesh(new THREE.SphereGeometry(0.042, 8, 6), dark, sx * 0.14, 0.04, 0.36));
+    const brows = [-1, 1].map(sx => mesh(new THREE.BoxGeometry(0.13, 0.03, 0.03), K.M(hair, { roughness: 0.9 }), sx * 0.15, 0.2, 0.355));
+    const mouth = mesh(new THREE.BoxGeometry(0.1, 0.028, 0.02), K.M(0x4a1c12), 0, -0.19, 0.385);
+    g.add(K.sweptHair(hair));
+    g.userData = { eyes, brows, mouth };
+    g.update = (t, { talking = false, face = 'neutral' } = {}) => {
+      const blink = ((t + 0.4) % 3.4) < 0.1 ? 0.15 : 1;
+      eyes.forEach(e => e.scale.set(1, (face === 'happy' ? 0.6 : face === 'shock' ? 1.4 : 1) * blink, 1));
+      brows.forEach((b, i) => { b.position.y = face === 'shock' ? 0.25 : 0.2; b.rotation.z = face === 'worried' ? (i ? 0.25 : -0.25) : 0; });
+      let mw = face === 'happy' ? 1.35 : 1, mh = face === 'shock' ? 3 : 1;
+      if (talking) mh *= 1 + Math.abs(Math.sin(t * 15.5) * Math.sin(t * 6.1 + 1)) * 3;
+      mouth.scale.set(mw, mh, 1);
+    };
+    return g;
+  };
+  // Put a custom head on a rigged model: hides the model's own head (Head bone shrunk) and rides the Neck bone.
+  K.swapHead = (model, headObj, { offset = [0, 0.2, 0.01], scale = 0.36, neckBone = 'Neck', headBone = 'Head' } = {}) => {
+    let hb = null; model.g.traverse(o => { if (o.isBone && o.name === headBone) hb = o; });
+    const holder = K.attachToBone(model, neckBone, headObj, { offset, scale });
+    const play = model.play.bind(model);
+    model.play = (name, t, o) => { play(name, t, o); if (hb) hb.scale.setScalar(0.001); };
+    if (hb) hb.scale.setScalar(0.001);
+    return holder;
+  };
   // Attach an object to a model's bone so it follows the animation. offset/rot/scale are in the model's own upright frame.
   K.attachToBone = (model, boneName, obj, { offset = [0, 0, 0], scale = 1, rot = [0, 0, 0] } = {}) => {
     let bone = null; model.g.traverse(o => { if (o.isBone && o.name === boneName) bone = o; });
