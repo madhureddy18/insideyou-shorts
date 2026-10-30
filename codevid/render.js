@@ -131,7 +131,7 @@ function captions(info, T, D, file) {
     const words = l.text.split(/\s+/), chunks = [];
     for (let k = 0; k < words.length;) { const n = words.length - k <= 4 ? words.length - k : 3; chunks.push(words.slice(k, k + n).join(' ')); k += n; }
     const span = (l.end - l.t) / chunks.length;
-    chunks.forEach((c, k) => ev.push(`Dialogue: 1,${ts(l.t + k * span)},${ts(l.t + (k + 1) * span + (k === chunks.length - 1 ? 0.15 : 0))},${l.who === 'bloc' ? 'Bloc' : 'Raju'},,0,0,0,,{\\fscx88\\fscy88\\t(0,110,\\fscx100\\fscy100)}${esc(c)}`));
+    chunks.forEach((c, k) => ev.push(`Dialogue: 1,${ts(l.t + k * span)},${ts(l.t + (k + 1) * span + (k === chunks.length - 1 ? 0.15 : 0))},${(l.who === 'bloc' || l.who === 'chotu') ? 'Bloc' : 'Raju'},,0,0,0,,{\\fscx88\\fscy88\\t(0,110,\\fscx100\\fscy100)}${esc(c)}`));
   }
   for (const b of info.badges) ev.push(`Dialogue: 2,${ts(b.t)},${ts(b.end)},Badge,,0,0,0,,{\\fad(120,120)}${esc(b.text)}`);
   for (const b of info.big) ev.push(`Dialogue: 3,${ts(b.t)},${ts(b.end)},Big,,0,0,0,,{\\fscx30\\fscy30\\t(0,180,\\fscx112\\fscy112)\\t(180,300,\\fscx100\\fscy100)}${esc(b.text)}`);

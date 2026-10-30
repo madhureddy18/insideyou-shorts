@@ -336,6 +336,130 @@
     if (s.fov) { K.cam.fov = s.fov; K.cam.updateProjectionMatrix(); }
   };
 
+  // ------------------------------------------------------------------ motion-graphics toolkit
+  // vertical gradient sky (CSS colours)
+  K.gradientBg = (top = '#0c4a42', bottom = '#16806a', glow = 'rgba(255,214,102,0.18)') => {
+    const tex = K.canvasTex(64, 512, (x, w, h) => {
+      const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, top); g.addColorStop(1, bottom);
+      x.fillStyle = g; x.fillRect(0, 0, w, h);
+      const r = x.createRadialGradient(w / 2, h * 0.55, 0, w / 2, h * 0.55, h * 0.5); r.addColorStop(0, glow); r.addColorStop(1, 'rgba(0,0,0,0)');
+      x.fillStyle = r; x.fillRect(0, 0, w, h);
+    });
+    K.scene.background = tex; K.scene.fog = null; return tex;
+  };
+  // rounded-rect helper for canvas drawings
+  K.rrect = (x, X, Y, W, H, r) => { x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + W, Y, X + W, Y + H, r); x.arcTo(X + W, Y + H, X, Y + H, r); x.arcTo(X, Y + H, X, Y, r); x.arcTo(X, Y, X + W, Y, r); x.closePath(); };
+  // flat motion-graphics card in 3D: card.draw(fn(ctx,w,h)) redraws; card.g is the group to animate
+  K.card = ({ w = 2.6, h = 1.2, px = 160, bg = '#ffffff', radius = 0.12, shadow = true } = {}) => {
+    const PW = Math.round(w * px), PH = Math.round(h * px), R = radius * px;
+    const tex = K.canvasTex(PW, PH, () => {});
+    const g = K.group();
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, color: 0xeeeeee, depthWrite: false });
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat); plane.renderOrder = 10; g.add(plane);
+    if (shadow) {
+      const st = K.canvasTex(PW, PH, (x, W, H) => { x.filter = 'blur(14px)'; x.fillStyle = 'rgba(0,0,0,0.35)'; K.rrect(x, 18, 26, W - 36, H - 36, R); x.fill(); });
+      const sp = new THREE.Mesh(new THREE.PlaneGeometry(w * 1.04, h * 1.08), new THREE.MeshBasicMaterial({ map: st, transparent: true, depthWrite: false }));
+      sp.position.set(0.03, -0.06, -0.01); sp.renderOrder = 9; g.add(sp);
+    }
+    let last = null;
+    const card = { g, mat, tex, w, h,
+      draw(fn, key) {
+        if (key !== undefined && key === last) return; last = key;
+        tex.redraw((x, W, H) => { x.save(); K.rrect(x, 0, 0, W, H, R); x.clip(); x.fillStyle = bg; x.fillRect(0, 0, W, H); fn(x, W, H); x.restore(); });
+      },
+      // pop-in / out animation: scale with overshoot, fade
+      show(t, tin, tout = 1e9, from = 'scale') {
+        const kin = K.easeBack(K.prog(t, tin, tin + 0.4)), kout = K.easeIn(K.prog(t, tout, tout + 0.3));
+        const vis = t >= tin && t < tout + 0.3; g.visible = vis;
+        if (!vis) return 0;
+        const k = kin * (1 - kout);
+        if (from === 'scale') g.scale.setScalar(Math.max(0.001, k));
+        else { g.scale.setScalar(1); g.position.x = g.userData.x0 + (1 - kin) * (from === 'left' ? -4 : 4) + kout * (from === 'left' ? -4 : 4); }
+        mat.opacity = Math.min(1, kin * 1.5) * (1 - kout);
+        return k;
+      } };
+    return card;
+  };
+  // text helper for cards
+  K.text = (x, str, X, Y, { size = 60, color = '#14213d', weight = 'bold', align = 'center', font = 'DejaVu Sans', max } = {}) => {
+    const lim = max || x.canvas.width * 0.88;               // auto-shrink so text never spills off its card
+    x.font = `${weight} ${size}px ${font}, sans-serif`;
+    const w = x.measureText(str).width; if (w > lim) { size = Math.floor(size * lim / w); x.font = `${weight} ${size}px ${font}, sans-serif`; }
+    x.fillStyle = color; x.textAlign = align; x.textBaseline = 'middle'; x.fillText(str, X, Y);
+  };
+  // rotating sunburst rays behind characters
+  K.sunburst = ({ r = 9, rays = 18, a = 'rgba(255,214,102,0.13)', b = 'rgba(255,255,255,0.0)' } = {}) => {
+    const tex = K.canvasTex(1024, 1024, (x, W, H) => {
+      for (let i = 0; i < rays; i++) { x.beginPath(); x.moveTo(W / 2, H / 2); x.arc(W / 2, H / 2, W / 2, (i / rays) * Math.PI * 2, ((i + 0.5) / rays) * Math.PI * 2); x.closePath(); x.fillStyle = i % 2 ? b : a; x.fill(); }
+      const g = x.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W / 2); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.75, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,1)');
+      x.globalCompositeOperation = 'destination-out'; x.fillStyle = g; x.fillRect(0, 0, W, H);
+    });
+    const m = new THREE.Mesh(new THREE.CircleGeometry(r, 64), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+    m.renderOrder = -1; return K.add(m);
+  };
+  // confetti burst: K.confetti({at:[x,y,z], t0, n})
+  K.confetti = ({ at = [0, 2, 0], t0 = 0, n = 120, colors = [0xffc53d, 0xff7a2f, 0x3ddc97, 0xffffff, 0x4da3ff], spread = 3.2, seed = 3 }) => {
+    const r = K.rng(seed), geo = new THREE.PlaneGeometry(0.09, 0.05), mats = colors.map(c => new THREE.MeshBasicMaterial({ color: c, side: THREE.DoubleSide }));
+    return K.particles({ n, gravity: 4.5, floorY: -5, make: i => new THREE.Mesh(geo, mats[i % mats.length]),
+      spawn: () => { const a = r() * Math.PI * 2, s = 1 + r() * spread; return { pos: at, vel: [Math.cos(a) * s, 2.5 + r() * 4, Math.sin(a) * s * 0.4], t0: t0 + r() * 0.08, life: 2.6, spin: [r() * 14, r() * 12, r() * 16] }; } });
+  };
+
+  // Chotu: round golden buddy with big cartoon eyes, a ₹ belly badge, little arms and feet
+  K.makeChotu = ({ color = 0xffc53d } = {}) => {
+    const g = K.group(), body = K.group(g), R = 0.6;
+    const gold = K.M(color, { roughness: 0.28, metalness: 0.35, emissive: 0x5a3a00, emissiveIntensity: 0.55 });
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(R, 48, 32), gold); ball.castShadow = true; ball.position.y = 0.78; ball.scale.set(1, 0.95, 0.92); body.add(ball);
+    const onFace = (x, y, z = 0.004) => { const zz = Math.sqrt(Math.max(0, R * R * 0.92 * 0.92 - x * x - (y) * (y))) ; return [x, 0.78 + y, zz + z]; };
+    const white = new THREE.MeshBasicMaterial({ color: 0xffffff }), black = new THREE.MeshBasicMaterial({ color: 0x14110d });
+    const disc = (r, m) => new THREE.Mesh(new THREE.CircleGeometry(r, 32), m);
+    const eyes = [], pupils = [], shines = [];
+    for (const ex of [-0.2, 0.2]) {
+      const e = disc(0.13, white); e.position.set(...onFace(ex, 0.12, 0.01)); e.scale.set(1, 1.18, 1); e.lookAt(e.position.clone().multiplyScalar(2).setY(e.position.y)); body.add(e); eyes.push(e);
+      const p = disc(0.075, black); p.position.set(...onFace(ex + 0.015, 0.1, 0.02)); p.lookAt(p.position.clone().multiplyScalar(2).setY(p.position.y)); body.add(p); pupils.push(p);
+      const sh = disc(0.025, white); sh.position.set(...onFace(ex + 0.045, 0.15, 0.03)); sh.lookAt(sh.position.clone().multiplyScalar(2).setY(sh.position.y)); body.add(sh); shines.push(sh);
+    }
+    const happy = K.group(body);
+    for (const ex of [-0.2, 0.2]) { const arc = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.022, 8, 24, Math.PI), black); arc.position.set(...onFace(ex, 0.1, 0.02)); happy.add(arc); }
+    const mouth = new THREE.Mesh(new THREE.CircleGeometry(0.07, 24, Math.PI, Math.PI), new THREE.MeshBasicMaterial({ color: 0x5a1f0a }));
+    mouth.position.set(...onFace(0, -0.1, 0.02)); body.add(mouth);
+    const cheek = new THREE.MeshBasicMaterial({ color: 0xff8a5c, transparent: true, opacity: 0.55 });
+    for (const cx of [-0.36, 0.36]) { const c = disc(0.06, cheek); c.position.set(...onFace(cx, -0.04, 0.012)); c.lookAt(c.position.clone().multiplyScalar(2).setY(c.position.y)); body.add(c); }
+    const badge = K.canvasTex(128, 128, (x, w, h) => { x.fillStyle = '#fff3c4'; x.beginPath(); x.arc(64, 64, 60, 0, Math.PI * 2); x.fill(); x.fillStyle = '#c8901c'; x.font = 'bold 84px DejaVu Sans, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('₹', 64, 70); });
+    const bd = new THREE.Mesh(new THREE.CircleGeometry(0.11, 32), new THREE.MeshBasicMaterial({ map: badge, transparent: true }));
+    bd.position.set(...onFace(0, -0.33, 0.03)); bd.lookAt(bd.position.clone().multiplyScalar(2).setY(bd.position.y - 0.2)); body.add(bd);
+    const arms = [];
+    for (const sx of [-1, 1]) { const a = K.group(body); a.position.set(sx * 0.56, 0.82, 0); const cap = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.26, 6, 12), gold); cap.position.y = -0.16; cap.castShadow = true; a.add(cap); arms.push(a); }
+    const feet = [];
+    for (const sx of [-1, 1]) { const f = new THREE.Mesh(new THREE.SphereGeometry(0.15, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), K.M(0xe0a020, { roughness: 0.4 })); f.scale.set(1, 0.7, 1.3); f.position.set(sx * 0.24, 0.0, 0.05); f.castShadow = true; g.add(f); feet.push(f); }
+    const C = { g, body, eyes, pupils, shines, happy, mouth, arms, feet };
+    C.pose = (t, o = {}) => {
+      const f = o.face || 'open';
+      const blink = ((t + 0.7) % 3.6) < 0.1;
+      const open = f !== 'happy' && !blink;
+      eyes.forEach(e => { e.visible = open; e.scale.set(1, f === 'shock' ? 1.45 : 1.18, 1); });
+      pupils.forEach(p => { p.visible = open; p.scale.setScalar(f === 'shock' ? 0.7 : 1); }); shines.forEach(s => s.visible = open);
+      happy.visible = !open;
+      const hop = (o.jump || 0) + (o.hopLoop ? Math.abs(Math.sin(t * 7)) * 0.45 * o.hopLoop : 0);
+      const land = o.squash || 0;
+      body.position.y = hop * 0.7 + Math.sin(t * 2.6) * 0.02 + (o.talking ? Math.abs(Math.sin(t * 8)) * 0.035 : 0);
+      body.scale.set(1 + land * 0.18, 1 - land * 0.2, 1 + land * 0.18);
+      body.rotation.z = (o.wiggle || 0) * Math.sin(t * 7) * 0.12 + (o.tilt || 0);
+      body.rotation.y = o.turn || 0;
+      const talk = o.talking ? 0.5 + Math.abs(Math.sin(t * 15) * Math.sin(t * 5.7 + 1)) * 1.7 : (f === 'shock' ? 1.6 : 0.65);
+      mouth.scale.set(o.talking ? 1.15 : 1, talk, 1);
+      arms.forEach((a, i) => {
+        const s = i ? -1 : 1, Rt = i === 1;
+        let az = s * 0.35 + s * (o.armsUp || 0) * 2.2 + (o.talking ? s * Math.abs(Math.sin(t * 6 + i)) * 0.4 : 0), ax = o.talking ? -0.25 : 0;
+        if (Rt && o.point) { ax = K.lerp(ax, -1.4, o.point); az = K.lerp(az, -0.1, o.point); }
+        if (Rt && o.wave) az = K.lerp(az, -2.4 + Math.sin(t * 9) * 0.4, o.wave);
+        a.rotation.set(ax, 0, az);
+      });
+      feet.forEach((ft, i) => { ft.position.y = o.walk ? Math.max(0, Math.sin(t * 12 + i * Math.PI)) * 0.08 : 0; });
+    };
+    C.pose(0);
+    return C;
+  };
+
   // ------------------------------------------------------------------ boot (called by render.js with real voice timings)
   K.boot = (T) => {
     const S = window.SCENE;
