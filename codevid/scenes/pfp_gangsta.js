@@ -42,7 +42,7 @@ window.SCENE = {
     const chain = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.035, 10, 30, Math.PI), goldM); chain.rotation.z = Math.PI; chain.position.set(0, 0.76, 0.28); m.hip.add(chain);
     const pend = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.04, 32), goldM); pend.rotation.x = Math.PI / 2; pend.position.set(0, 0.5, 0.29); m.hip.add(pend);
     const rs = K.canvasTex(128, 128, (x) => { x.fillStyle = '#ffd25e'; x.beginPath(); x.arc(64, 64, 62, 0, 7); x.fill(); x.fillStyle = '#7a5200'; x.font = 'bold 86px DejaVu Sans, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('₹', 64, 70); });
-    const pf = new THREE.Mesh(new THREE.CircleGeometry(0.125, 32), new THREE.MeshBasicMaterial({ map: rs })); pf.position.set(0, 0.5, 0.315); m.hip.add(pf);
+    const pf = new THREE.Mesh(new THREE.CircleGeometry(0.125, 32), new THREE.MeshBasicMaterial({ map: rs })); pf.position.set(0, 0.5, 0.315); /* no ₹ on pendant */
     // right arm forward with pistol held sideways, left arm fanning cash
     const gunM = pistol(); gunM.position.set(0, -0.86, 0.02); gunM.rotation.y = -Math.PI / 2; gunM.scale.setScalar(1.3); m.arms[0].add(gunM);
     m.arms[0].rotation.set(-1.45, 0, -0.22);
@@ -55,6 +55,7 @@ window.SCENE = {
     const c = K.makeChotu();
     c.g.position.set(0.82, 0, 0.55); c.g.rotation.y = -0.05; c.g.scale.setScalar(1.12);
     c.pose(0, { face: 'open' });
+    c.body.children.forEach(o => { if (o.geometry && o.geometry.parameters && o.geometry.parameters.radius === 0.11 && o.material.map) o.visible = false; });   // hide ₹ belly badge
     c.eyes.forEach(e => e.visible = false); c.pupils.forEach(e => e.visible = false); c.shines.forEach(e => e.visible = false); c.happy.visible = false;
     for (const ex of [-0.2, 0.2]) { const l = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.05, 32), shade); l.rotation.x = Math.PI / 2; l.scale.set(1.15, 1, 0.8); l.position.set(ex, 0.9, 0.57); c.body.add(l); }
     c.body.add(K.at(K.box(0.14, 0.03, 0.03, goldM), 0, 0.93, 0.6));
