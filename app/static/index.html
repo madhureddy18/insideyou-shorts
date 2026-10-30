@@ -120,8 +120,7 @@ const cost = (n, a) => CFG ? CFG.rs_base + (a==="none"?0:a==="hook"?1:n)*CFG.rs_
 function header(back){
   return `<header>${back?`<button class="ghost" onclick="location.hash='#/'" aria-label="Back">←</button>`:""}
     <div class="logo">i</div><h1>InsideYou Studio</h1><span class="spacer"></span>
-    ${back?"":`<button class="ghost" onclick="location.hash='#/reels/maddieandchotu'">📸 Queue</button>
-    <button class="ghost" onclick="location.hash='#/face'">🙂 Face</button>
+    ${back?"":`<button class="ghost" onclick="location.hash='#/face'">🙂 Face</button>
     <button class="ghost" onclick="location.hash='#/settings'" aria-label="Settings">⚙️</button>`}</header>`;
 }
 
@@ -657,86 +656,6 @@ async function settingsPage(){
     catch(e){ toast(e.message, 5000); } $("#s_test").disabled = false; };
 }
 
-/* ---------------- Reels queue (upload finished videos, auto-post at set times) ---------------- */
-const RQ_DEFAULT_CAP = "\n\nFollow for one money question every day 💰\n#money #finance #india #3danimation";
-const fmtAt = iso => { try { return new Date(iso).toLocaleString("en-IN",{timeZone:"Asia/Kolkata",weekday:"short",day:"numeric",month:"short",hour:"numeric",minute:"2-digit"}); } catch(e){ return iso; } };
-const toLocalInput = iso => { const d = new Date(new Date(iso).getTime() + 330*60000); return d.toISOString().slice(0,16); };
-const fromLocalInput = v => v ? v + ":00+05:30" : "";
-const RQS = {uploading:["Uploading","run"], scheduled:["Scheduled","wait"], posting:["Posting…","run"], posted:["Posted","ok"], failed:["Failed","bad"], paused:["Paused",""]};
-async function reelsPage(acct){
-  clearInterval(timer); sticky.innerHTML = "";
-  let d; try { d = await api("/reels/"+acct); } catch(e){ if(e.message!=="login") app.innerHTML=header(true)+`<div class="card">${esc(e.message)}</div>`; return; }
-  const g = d.account, base = "/reels/"+acct;
-  const list = d.items.map(m => { const [t,c] = RQS[m.status]||[m.status,""];
-    return `<div class="card" style="padding:14px">
-      <div class="row"><span class="chip ${c}">${t}</span><b>${m.status==="posted" ? "Posted "+esc(fmtAt(m.posted)) : esc(fmtAt(m.at||""))}</b><span class="spacer"></span>
-        ${m.url?`<a class="small" href="${esc(m.url)}" target="_blank" rel="noopener">Open on Instagram ↗</a>`:""}</div>
-      ${m.name?`<div class="small muted" style="margin-top:6px">${esc(m.name)}</div>`:""}
-      ${m.error?`<div class="small" style="color:var(--bad);margin-top:6px">${esc(m.error)}</div>`:""}
-      ${["scheduled","paused","failed"].includes(m.status) ? `
-        <textarea id="cap_${m.id}" style="margin-top:10px;min-height:90px">${esc(m.caption)}</textarea>
-        <div class="row" style="margin-top:8px"><input type="datetime-local" id="at_${m.id}" value="${m.at?toLocalInput(m.at):""}" style="flex:1;min-width:190px">
-          <button onclick="rqSave('${acct}','${m.id}')">Save</button></div>
-        <div class="row" style="margin-top:8px">
-          <button class="primary" onclick="rqNow('${acct}','${m.id}')">Post now</button>
-          <button class="ghost" onclick="rqPause('${acct}','${m.id}','${m.status==="paused"||m.status==="failed"?"scheduled":"paused"}')">${m.status==="paused"?"Resume":m.status==="failed"?"Retry at this time":"Pause"}</button>
-          <a class="small" href="/api${base}/${m.id}/video" target="_blank" rel="noopener">Preview</a><span class="spacer"></span>
-          <button class="danger" onclick="rqDel('${acct}','${m.id}')">Delete</button></div>` :
-        `<div class="small muted" style="margin-top:8px;white-space:pre-wrap">${esc((m.caption||"").slice(0,160))}${(m.caption||"").length>160?"…":""}</div>
-         ${m.status!=="posting"?`<div class="row" style="margin-top:6px"><span class="spacer"></span><button class="danger" onclick="rqDel('${acct}','${m.id}')">${m.status==="posted"?"Remove from list":"Delete"}</button></div>`:""}`}
-    </div>`; }).join("");
-  app.innerHTML = header(true) + `
-  <div class="card"><h2>📸 @${esc(g.username||acct)} posting queue</h2>
-    ${g.connected ? `<div class="row" style="margin:8px 0"><b>Connected: @${esc(g.username)}</b><span class="spacer"></span><button class="danger" id="rq_dis">Disconnect</button></div>` : `
-      <div class="small muted">Make @${esc(acct)} a Professional (Creator) account, add it to your Meta app (Instagram → API setup with Instagram login → Add account → Generate token), then paste the token here. It renews itself.</div>
-      <input id="rq_tok" placeholder="Paste access token" style="margin-top:10px" autocomplete="off">
-      <button class="primary" id="rq_con" style="margin-top:10px">Connect</button>`}
-    <label class="lbl" style="margin-top:12px;display:block">Daily posting times (India time)</label>
-    <div class="row"><input id="rq_slots" value="${esc(d.slots.join(", "))}" style="flex:1"><button id="rq_ss">Save</button></div>
-  </div>
-  ${g.connected ? `<div class="card"><h2>➕ Add a video</h2>
-    <input type="file" id="rq_file" accept="video/mp4,video/*">
-    <textarea id="rq_cap" style="margin-top:10px;min-height:120px" placeholder="Caption + hashtags">${esc(RQ_DEFAULT_CAP)}</textarea>
-    <button class="primary" id="rq_up" style="margin-top:10px;width:100%">Add to queue (next free slot)</button>
-    <div id="rq_prog" class="small muted" style="margin-top:8px"></div></div>` : ""}
-  <h2 style="margin:6px 2px 12px">Queue</h2>
-  ${list || `<div class="card small muted">Nothing queued yet.</div>`}`;
-  if (g.connected) {
-    $("#rq_dis").onclick = async () => { if (!confirm("Disconnect @"+g.username+"?")) return; await api(base+"/disconnect",{method:"POST"}); reelsPage(acct); };
-    $("#rq_up").onclick = () => rqUpload(acct);
-  } else {
-    $("#rq_con").onclick = async () => { $("#rq_con").disabled = true;
-      try { const r = await api(base+"/token",{method:"PUT",body:{token:$("#rq_tok").value}}); toast("✅ Connected @"+r.username, 4000); reelsPage(acct); }
-      catch(e){ toast(e.message, 6000); $("#rq_con").disabled = false; } };
-  }
-  $("#rq_ss").onclick = async () => { try { const r = await api(base+"/slots",{method:"PUT",body:{slots:$("#rq_slots").value.split(",")}}); toast("Times saved: "+r.slots.join(", ")); } catch(e){ toast(e.message); } };
-  if (d.items.some(m => ["posting","uploading"].includes(m.status))) timer = setInterval(() => { if (location.hash.startsWith("#/reels/") && !document.activeElement.matches("textarea,input")) reelsPage(acct); }, 15000);
-}
-async function rqUpload(acct){
-  const f = $("#rq_file").files[0]; if (!f) return toast("Pick a video first");
-  const btn = $("#rq_up"), prog = $("#rq_prog"); btn.disabled = true;
-  try {
-    const m = await api(`/reels/${acct}/new`, {method:"POST", body:{caption:$("#rq_cap").value, name:f.name}});
-    const CH = 8*1024*1024, n = Math.ceil(f.size/CH);
-    for (let i = 0; i < n; i++) {
-      prog.textContent = `Uploading… ${Math.round(i/n*100)}%`;
-      let ok = false;
-      for (let tries = 0; tries < 3 && !ok; tries++) {
-        const r = await fetch(`/api/reels/${acct}/${m.id}/chunk?i=${i}`, {method:"POST", credentials:"same-origin", body:f.slice(i*CH, (i+1)*CH)});
-        ok = r.ok; if (!ok) await new Promise(res => setTimeout(res, 1500));
-      }
-      if (!ok) throw new Error("Upload failed - check your connection and try again");
-    }
-    prog.textContent = "Finishing…";
-    const done = await api(`/reels/${acct}/${m.id}/done`, {method:"POST", body:{parts:n}});
-    toast("✅ Queued for "+fmtAt(done.at), 5000); reelsPage(acct);
-  } catch(e){ toast(e.message, 6000); prog.textContent = ""; btn.disabled = false; }
-}
-async function rqSave(acct, id){ try { await api(`/reels/${acct}/${id}`, {method:"PUT", body:{caption:$("#cap_"+id).value, at:fromLocalInput($("#at_"+id).value)}}); toast("Saved"); reelsPage(acct); } catch(e){ toast(e.message); } }
-async function rqPause(acct, id, st){ try { await api(`/reels/${acct}/${id}`, {method:"PUT", body:{status:st}}); reelsPage(acct); } catch(e){ toast(e.message); } }
-async function rqNow(acct, id){ if (!confirm("Post this Reel to Instagram now?")) return; try { await api(`/reels/${acct}/${id}/post-now`, {method:"POST"}); toast("Posting… takes 1–3 minutes", 4000); reelsPage(acct); } catch(e){ toast(e.message); } }
-async function rqDel(acct, id){ if (!confirm("Delete this from the queue? (Doesn't delete anything already on Instagram)")) return; try { await api(`/reels/${acct}/${id}`, {method:"DELETE"}); reelsPage(acct); } catch(e){ toast(e.message); } }
-
 /* ---------------- router ---------------- */
 async function route(){
   const h = location.hash.replace(/^#/, "") || "/";
@@ -744,7 +663,6 @@ async function route(){
   const m = h.match(/^\/job\/([\w-]+)/);
   if (h.startsWith("/face")) return facePage();
   if (h.startsWith("/settings")) return settingsPage();
-  const rq = h.match(/^\/reels\/([a-z0-9_]+)/); if (rq) return reelsPage(rq[1]);
   m ? jobPage(m[1]) : home();
 }
 window.onhashchange = route;

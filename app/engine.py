@@ -870,12 +870,6 @@ def run(store: Store, jid: str, step: str, arg: str = ""):
         for j in [x for x in arg.split(",") if x]:
             post_instagram(store, j)
         return
-    if step == "reelbatch":                   # arg = comma list of "account/reelid" that are due now
-        from . import reels
-        for item in [x for x in arg.split(",") if "/" in x]:
-            acct, rid = item.split("/", 1)
-            reels.post(store, acct, rid)
-        return
     if step == "ytbatch":                     # arg = "jid@time,jid@time" - schedule many uploads
         for item in [x for x in arg.split(",") if "@" in x]:
             j, t = item.split("@", 1)
