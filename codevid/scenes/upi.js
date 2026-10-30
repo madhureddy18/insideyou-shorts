@@ -226,7 +226,7 @@ window.SCENE = {
     // stall-world cards
     const recvA = K.card({ w: 1.0, h: 0.3, bg: '#16a34a', radius: 0.17 }); recvA.g.position.set(0.82, 1.82, -0.05); K.add(recvA.g);
     recvA.draw((x, W2, H2) => K.text(x, '₹20 RECEIVED', W2 / 2, H2 * 0.55, { size: 44, color: '#ffffff' }), 1);
-    const barely = K.card({ w: 1.05, h: 0.36, bg: '#ffffff', radius: 0.12 }); barely.g.position.set(-0.05, 2.95, 0.6); K.add(barely.g);
+    const barely = K.card({ w: 1.05, h: 0.36, bg: '#ffffff', radius: 0.12 }); barely.g.position.set(-0.5, 3.1, 0.6); K.add(barely.g);
     barely.draw((x, W2, H2) => { K.text(x, 'Balance: ₹47', W2 / 2, H2 * 0.55, { size: 40, color: '#c2410c' }); }, 1);
     // white flash for the dive into the phone (rides on the camera)
     K.scene.add(K.cam);
@@ -269,7 +269,7 @@ window.SCENE = {
       const sip = t >= L[12].t;
       if (!sip) holdPhone(); else { maddie.arms[1].rotation.set(-0.2, 0, 0.1); maddie.arms[0].rotation.set(-2.15 + Math.sin(t * 2) * 0.05, 0, -0.55); }
       maddie.root.updateMatrixWorld(true);
-      phoneA.position.copy(handPos()); phoneA.lookAt(K.cam.position); phoneA.visible = !sip;
+      phoneA.position.copy(handPos()); phoneA.lookAt(K.cam.position); phoneA.visible = !sip && !(t >= L[9].t - 0.15 && t < L[10].t);
       glassH.visible = sip; glassC.visible = !sip;
       if (sip) glassH.position.copy(maddie.arms[0].localToWorld(V(0, -0.95, 0.12)));
       chotuA.pose(t, Object.assign({ talking: K.speaking('chotu', t) && !net_ }, K.track(t, cAKeys)));
@@ -318,7 +318,7 @@ window.SCENE = {
 
     // ---------------------------------------------------------------- camera
     const PHf = PH.toArray();
-    const stallWide = { pos: [0.35, 2.35, 10.6], look: [0.35, 1.75, 0] };
+    const stallWide = { pos: [0.2, 2.35, 10.6], look: [0.2, 1.75, 0] };
     const wideN = { pos: W(0, 3.65, 10.0), look: W(0, 3.45, 0) };
     const shots = [
       { t: [0, L[0].t + 1.3], from: { pos: [PH.x - 0.15, PH.y + 0.15, PH.z + 0.95], look: PHf }, to: { pos: [PH.x + 0.05, PH.y + 0.45, PH.z + 2.4], look: [PH.x - 0.2, PH.y + 0.35, PH.z] } },
