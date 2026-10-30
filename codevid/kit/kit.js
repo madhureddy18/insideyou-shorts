@@ -460,6 +460,83 @@
     return C;
   };
 
+  // Maddie v2 - modelled on the creator's photo: tall textured quiff, faded sides, thick brows, full short beard,
+  // dark collared shirt, sunglasses. style: 'voxel' (blocky) or 'smooth' (rounded cartoon). Same pose API as makePerson.
+  K.makeMaddie = ({ style = 'voxel', sunglasses = true, skin = 0xa86a42, hair = 0x17100b, shirt = 0x1b2130, pants = 0x2c3448, shoes = 0xf2f2f2 } = {}) => {
+    const P = K.makePerson({ skin, hair, top: shirt, pants, shoes, accent: shirt });
+    const { head, hip, mat, brows, eyes, pupils, mouth } = P;
+    const smooth = style === 'smooth';
+    const hairM = K.M(hair, { roughness: 0.9 }), hairD = K.M(0x0f0a07, { roughness: 0.95 }), beardM = K.M(0x140d09, { roughness: 1 });
+    const shade = new THREE.MeshStandardMaterial({ color: 0x07080b, roughness: 0.08, metalness: 0.85 });
+    const frame = K.M(0x0b0b0e, { roughness: 0.3, metalness: 0.5 });
+    // clear the old hair + hoodie details
+    head.children.filter(c => c.material === mat.hair && !brows.includes(c)).forEach(c => head.remove(c));
+    hip.children.filter(c => c.material === mat.white || c.material === mat.accent).forEach(c => hip.remove(c));
+    const add = (m, x, y, z, parent = head) => { m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
+    const B = (w, h, d, m) => K.box(w, h, d, m);
+    const rr = K.rng(42);
+    if (!smooth) {
+      add(B(0.07, 0.24, 0.62, hairD), -0.43, 0.27, -0.06); add(B(0.07, 0.24, 0.62, hairD), 0.43, 0.27, -0.06);     // faded sides
+      add(B(0.86, 0.46, 0.08, hairD), 0, 0.17, -0.42);                                                                  // back
+      add(B(0.86, 0.14, 0.86, hairM), 0, 0.46, -0.01);                                                                  // top slab
+      const rows = [[0.3, 0.3], [0.1, 0.25], [-0.12, 0.19], [-0.32, 0.12]];                                           // swept-back quiff, tallest at front
+      rows.forEach(([z, h], r) => { for (let c = 0; c < 5; c++) {
+        const hh = h + (rr() - 0.5) * 0.06, m = add(B(0.19, hh, 0.3, (r + c) % 3 ? hairM : hairD), -0.36 + c * 0.18 + (rr() - 0.5) * 0.04, 0.5 + hh / 2 - 0.03, z);
+        m.rotation.set(-0.5 - rr() * 0.15, (rr() - 0.5) * 0.2, (rr() - 0.5) * 0.12); } });
+      add(B(0.8, 0.09, 0.12, hairM), 0, 0.42, 0.37);                                                                    // hairline
+      for (const sx of [-1, 1]) add(B(0.06, 0.18, 0.12, mat.skin), sx * 0.44, 0.0, 0.02);                              // ears
+      // beard on the jaw only (cheeks stay clear), chin, sides of the mouth, moustache
+      for (const sx of [-1, 1]) { add(B(0.05, 0.27, 0.42, beardM), sx * 0.41, -0.27, 0.19); add(B(0.07, 0.14, 0.04, beardM), sx * 0.18, -0.26, 0.41); }
+      add(B(0.7, 0.1, 0.05, beardM), 0, -0.36, 0.405); add(B(0.62, 0.09, 0.46, beardM), 0, -0.44, 0.16);
+      add(B(0.34, 0.055, 0.04, beardM), 0, -0.13, 0.42);
+      brows.forEach(b => b.scale.set(1.15, 1.7, 1));
+    } else {
+      head.children[0].visible = false;                                                                                 // swap the box head for a rounded one
+      const hs = [1, 1.08, 0.97];
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.44, 40, 28), mat.skin); ball.scale.set(...hs); add(ball, 0, 0, 0);
+      for (const sx of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 12), mat.skin); e.scale.set(0.6, 1, 0.8); add(e, sx * 0.44, 0.0, 0.0); }
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.07, 16, 12), mat.skin); nose.scale.set(1.1, 0.9, 0.9); add(nose, 0, -0.05, 0.42);
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.455, 40, 20, 0, Math.PI * 2, 0, Math.PI * 0.4), hairD); cap.scale.set(...hs); cap.rotation.x = -0.12; add(cap, 0, 0.02, -0.02);
+      const vol = new THREE.Mesh(new THREE.SphereGeometry(0.36, 32, 20), hairM); vol.scale.set(1.18, 0.6, 1.12); vol.rotation.x = -0.28; add(vol, 0, 0.44, 0.0);
+      const lift = new THREE.Mesh(new THREE.SphereGeometry(0.27, 32, 20), hairM); lift.scale.set(1.45, 0.62, 0.85); lift.rotation.x = -0.45; add(lift, 0, 0.56, 0.2);
+      for (let i = 0; i < 22; i++) {                                                                                    // texture bumps on top
+        const x = (rr() - 0.5) * 0.66, z = -0.25 + rr() * 0.55, k = (z + 0.25) / 0.55;
+        const s = new THREE.Mesh(new THREE.SphereGeometry(0.06 + rr() * 0.04, 12, 8), rr() > 0.5 ? hairM : hairD);
+        add(s, x, 0.55 + k * 0.17 - x * x * 0.6 + rr() * 0.03, z);
+      }
+      const beard = new THREE.Mesh(new THREE.SphereGeometry(0.452, 40, 20, 0, Math.PI, Math.PI * 0.63, Math.PI * 0.34), beardM);
+      beard.scale.set(...hs); beard.rotation.y = 0; add(beard, 0, -0.01, 0.005);
+      const mus = new THREE.Mesh(new THREE.CapsuleGeometry(0.03, 0.26, 6, 12), beardM); mus.rotation.z = Math.PI / 2; add(mus, 0, -0.14, 0.415);
+      brows.forEach(b => { b.position.z = 0.385; b.scale.set(1.15, 1.7, 1); });
+      mouth.position.z = 0.43;
+      // round the body: boxes -> capsules of the same size
+      const roundify = m => {
+        const p = m.geometry.parameters; if (!p || !p.height || m.parent === head) return;
+        const r = Math.min(p.width, p.depth) / 2, len = Math.max(0.001, p.height - 2 * r);
+        m.geometry = new THREE.CapsuleGeometry(r, len, 8, 16); m.scale.set(p.width / (2 * r), 1, p.depth / (2 * r));
+      };
+      P.root.traverse(o => { if (o.isMesh && o.geometry.type === 'BoxGeometry' && o.parent !== head) roundify(o); });
+    }
+    // collared shirt: collar, placket, buttons, neck V
+    const collarM = K.M(0x252c3f, { roughness: 0.8 });
+    for (const sx of [-1, 1]) { const c = add(B(0.24, 0.13, 0.06, collarM), sx * 0.13, 0.9, 0.27, hip); c.rotation.z = sx * 0.55; }
+    add(B(0.17, 0.15, 0.02, mat.skin), 0, 0.86, 0.262, hip);
+    add(B(0.05, 0.72, 0.02, collarM), 0, 0.42, 0.268, hip);
+    for (let i = 0; i < 4; i++) add(B(0.04, 0.04, 0.02, K.M(0x3a4258)), 0, 0.68 - i * 0.18, 0.28, hip);
+    if (sunglasses) {
+      eyes.forEach(e => e.visible = false); pupils.forEach(p => p.visible = false);
+      const z = smooth ? 0.425 : 0.43;
+      for (const sx of [-1, 1]) {
+        const lens = smooth ? new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.135, 0.03, 32), shade) : B(0.29, 0.18, 0.03, shade);
+        if (smooth) { lens.rotation.x = Math.PI / 2; lens.scale.set(1.12, 1, 0.78); }
+        add(lens, sx * 0.18, 0.04, z);
+        add(B(0.04, 0.035, 0.5, frame), sx * (smooth ? 0.41 : 0.43), 0.1, 0.16);
+      }
+      add(B(0.78, 0.035, 0.04, frame), 0, 0.12, z + 0.005); add(B(0.08, 0.03, 0.03, frame), 0, 0.07, z + 0.01);
+    }
+    return P;
+  };
+
   // ------------------------------------------------------------------ boot (called by render.js with real voice timings)
   K.boot = (T) => {
     const S = window.SCENE;
