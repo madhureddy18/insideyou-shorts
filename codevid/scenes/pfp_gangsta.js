@@ -39,8 +39,8 @@ window.SCENE = {
     m.head.add(K.at(K.box(0.92, 0.24, 0.9, blk), 0, 0.5, 0));                       // cap
     m.head.add(K.at(K.box(0.6, 0.06, 0.4, blk), 0, 0.42, -0.6));                      // brim, backwards
     m.head.add(K.at(K.box(0.2, 0.12, 0.02, goldM), 0, 0.52, 0.455));                  // gold cap badge
-    const chain = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.035, 10, 30, Math.PI), goldM); chain.rotation.z = Math.PI; chain.position.set(0, 0.76, 0.28); m.hip.add(chain);
-    const pend = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.04, 32), goldM); pend.rotation.x = Math.PI / 2; pend.position.set(0, 0.5, 0.29); m.hip.add(pend);
+    const chain = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.035, 10, 30, Math.PI), goldM); chain.rotation.z = Math.PI; chain.position.set(0, 0.76, 0.28); 
+    const pend = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.04, 32), goldM); pend.rotation.x = Math.PI / 2; pend.position.set(0, 0.5, 0.29); 
     const rs = K.canvasTex(128, 128, (x) => { x.fillStyle = '#ffd25e'; x.beginPath(); x.arc(64, 64, 62, 0, 7); x.fill(); x.fillStyle = '#7a5200'; x.font = 'bold 86px DejaVu Sans, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('₹', 64, 70); });
     const pf = new THREE.Mesh(new THREE.CircleGeometry(0.125, 32), new THREE.MeshBasicMaterial({ map: rs })); pf.position.set(0, 0.5, 0.315); /* no ₹ on pendant */
     // right arm forward with pistol held sideways, left arm fanning cash
