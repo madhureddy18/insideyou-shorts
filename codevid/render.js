@@ -65,6 +65,12 @@ function voices(lines) {
   });
   let t = 0.45;
   const T = { lines: lines.map((l, i) => { t += i ? (l.gap ?? 0.2) : 0; const o = { who: l.who, text: l.text, t: +t.toFixed(3), end: +(t + durs[i]).toFixed(3), wav: path.join(dir, String(i + 1).padStart(2, '0') + '.wav') }; t = o.end; return o; }) };
+  T.lines.forEach(o => {                // loudness envelope (30 per second, 0..1) so mouths open with the voice
+    const r = spawnSync('ffmpeg', ['-v', 'error', '-i', o.wav, '-f', 's16le', '-ac', '1', '-ar', '6000', '-'], { maxBuffer: 1 << 26 });
+    const pcm = new Int16Array(r.stdout.buffer, r.stdout.byteOffset, Math.floor(r.stdout.length / 2)), win = 200, env = [];
+    for (let k = 0; k < pcm.length; k += win) { let q = 0; for (let j = k; j < Math.min(k + win, pcm.length); j++) q += pcm[j] * pcm[j]; env.push(Math.sqrt(q / win)); }
+    const mx = Math.max(1, ...env); o.env = env.map(v => +(Math.min(1, v / (mx * 0.75))).toFixed(3));
+  });
   return T;
 }
 

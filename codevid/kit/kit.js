@@ -1090,8 +1090,11 @@
 
   // ===== MADDIE V6: built from Maddy's own photos. One clean smooth body (no shells/patches) riding the same rig.
   // Smooth tapered capsule from world point a to b.
+  K.LOWPOLY = false;                                       // faceted clay look for the V6 characters (matches the AI sheets)
+  const LPF = () => K.LOWPOLY;
   K.segment = (a, b, r1, r2, mat, seg = 40) => {
-    const len = a.distanceTo(b), pts = [], n = 14;
+    if (LPF()) seg = Math.min(seg, 10);
+    const len = a.distanceTo(b), pts = [], n = LPF() ? 4 : 14;
     for (let i = 0; i <= n; i++) { const t = -Math.PI / 2 + i / n * Math.PI / 2; pts.push(new THREE.Vector2(Math.cos(t) * r1, Math.sin(t) * r1)); }
     for (let i = 0; i <= n; i++) { const t = i / n * Math.PI / 2; pts.push(new THREE.Vector2(Math.cos(t) * r2, len + Math.sin(t) * r2)); }
     const m = new THREE.Mesh(new THREE.LatheGeometry(pts, seg), mat); m.castShadow = true; m.receiveShadow = true;
@@ -1099,6 +1102,7 @@
   };
   // Lathe "barrel" (torso / pelvis): profile [[y, r], ...] from bottom to top, squashed front-to-back by depth.
   K.barrel = (prof, mat, depth = 0.72, seg = 48) => {
+    if (LPF()) seg = Math.min(seg, 14);
     const pts = prof.map(([y, r]) => new THREE.Vector2(r, y));
     const m = new THREE.Mesh(new THREE.LatheGeometry(pts, seg), mat); m.scale.z = depth; m.castShadow = true; m.receiveShadow = true; return m;
   };
@@ -1109,10 +1113,11 @@
 
   // Maddy's hair: thick black wavy volume on top, lifted and pushed forward at the front, short tapered sides and back.
   K.maddyHair = (color = 0x1c1511) => {
-    const mat = K.M(color, { roughness: 0.62, flatShading: false }), g = new THREE.Group();
+    const mat = K.M(color, { roughness: LPF() ? 0.9 : 0.62, flatShading: LPF() }), g = new THREE.Group();
     const SX = 0.86, SY = 1.1, SZ = 0.95, surf = (d, r) => new THREE.Vector3(d.x * r * SX, d.y * r * SY, d.z * r * SZ);
     const sag = (a, b) => new THREE.Vector3(Math.sin(b), Math.cos(b) * Math.sin(a), Math.cos(b) * Math.cos(a));
     const ribbon = (pts, wFn, hFn, seg = 70, rad = 16) => {
+      if (LPF()) { seg = Math.min(seg, 30); rad = 8; }
       const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal'), pos = [], idx = [];
       for (let i = 0; i <= seg; i++) {
         const t = i / seg, c = curve.getPointAt(t), tan = curve.getTangentAt(t);
@@ -1127,7 +1132,7 @@
       const m = new THREE.Mesh(geo, mat); m.castShadow = true; g.add(m); return m;
     };
     // close-cropped base: high forehead, short sides tapering above the ears, tapered back
-    const R = 0.44, cg = new THREE.SphereGeometry(R, 96, 64, 0, Math.PI * 2, 0, Math.PI * 0.72), cp = cg.attributes.position, v = new THREE.Vector3();
+    const R = 0.44, cg = new THREE.SphereGeometry(R, LPF() ? 22 : 96, LPF() ? 14 : 64, 0, Math.PI * 2, 0, Math.PI * 0.72), cp = cg.attributes.position, v = new THREE.Vector3();
     for (let i = 0; i < cp.count; i++) {
       v.fromBufferAttribute(cp, i); const up = v.y / R, fz = v.z / R, front = Math.max(0, fz), back = Math.max(0, -fz);
       const hl = 0.18 + Math.pow(front, 1.5) * 0.45 - back * back * 0.55; if (up < hl) v.y = hl * R;
@@ -1163,10 +1168,10 @@
 
   // Maddy's face: smooth oval head, medium-brown skin, thick brows, short full beard + moustache, big toothy smile.
   K.maddyHead = ({ skin = 0xa96f4c, hair = 0x17110d, beard = 0x5b3b2a } = {}) => {
-    const g = new THREE.Group(), skinM = K.M(skin, { roughness: 0.55, flatShading: false }), dark = K.M(0x120d0a, { roughness: 0.25, flatShading: false });
+    const g = new THREE.Group(), skinM = K.M(skin, { roughness: LPF() ? 0.85 : 0.55, flatShading: LPF() }), dark = K.M(0x120d0a, { roughness: 0.25, flatShading: false });
     const mesh = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; g.add(o); return o; };
     const shape = (rr, inflate = 0) => {                                          // oval head with a narrower jaw
-      const hg = new THREE.SphereGeometry(rr, 72, 54), hp = hg.attributes.position, v = new THREE.Vector3();
+      const hg = new THREE.SphereGeometry(rr, LPF() ? 20 : 72, LPF() ? 15 : 54), hp = hg.attributes.position, v = new THREE.Vector3();
       for (let i = 0; i < hp.count; i++) { v.fromBufferAttribute(hp, i); const y = v.y / rr;
         if (y < 0.1) { const k = (0.1 - y) / 1.1; v.x *= 1 - k * k * 0.3; v.z *= 1 - k * k * 0.1; v.y *= 1 + k * 0.08; v.z += k * k * 0.04 * rr / 0.42; }
         hp.setXYZ(i, v.x, v.y, v.z); }
@@ -1184,7 +1189,7 @@
       tmp.copy(cS).lerp(cB, m); cols.push(tmp.r, tmp.g, tmp.b);
     }
     sg.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
-    const skull = mesh(sg, K.M(0xffffff, { roughness: 0.6, flatShading: false, vertexColors: true }), 0, 0, 0); skull.scale.set(0.86, 1.1, 0.95);
+    const skull = mesh(sg, K.M(0xffffff, { roughness: LPF() ? 0.85 : 0.6, flatShading: LPF(), vertexColors: true }), 0, 0, 0); skull.scale.set(0.86, 1.1, 0.95);
     const stache = mesh(new THREE.TorusGeometry(0.075, 0.013, 10, 24, Math.PI * 0.85), K.M(beard, { roughness: 0.95 }), 0, -0.15, 0.392);
     stache.rotation.z = Math.PI * 0.075; stache.scale.set(1.1, 0.5, 0.6);
     // ears, nose
@@ -1205,14 +1210,15 @@
     const mouth = mesh(new THREE.CapsuleGeometry(0.014, 0.05, 4, 10), lipM, 0, -0.2, 0.39); mouth.rotation.z = Math.PI / 2; mouth.visible = false;
     g.add(K.maddyHair(hair));
     g.userData = { eyes, brows, mouth, smile };
-    g.update = (t, { talking = false, face = 'smile' } = {}) => {
+    g.update = (t, { talking = false, face = 'smile', talk = null } = {}) => {
+      if (talk != null) talking = talk > 0.04;
       const blink = ((t + 0.4) % 3.4) < 0.1 ? 0.15 : 1;
       eyes.forEach(e => e.scale.set(1, 1.05 * (face === 'smile' || face === 'happy' ? 0.8 : face === 'shock' ? 1.4 : 1) * blink, 0.6));
       brows.forEach((b, i) => { b.position.y = face === 'shock' ? 0.21 : 0.17; b.rotation.z = Math.PI / 2 + (i ? 1 : -1) * (face === 'worried' ? -0.25 : 0.12); });
       const grin = (face === 'smile' || face === 'happy') && !talking;
       smile.visible = grin; mouth.visible = !grin;
-      let mh = face === 'shock' ? 2.5 : 1; if (talking) mh *= 1 + Math.abs(Math.sin(t * 15.5) * Math.sin(t * 6.1 + 1)) * 3;
-      mouth.scale.set(mh, 1, 1);
+      let mh = face === 'shock' ? 2.5 : 1; if (talk != null) mh *= 1 + talk * 4.5; else if (talking) mh *= 1 + Math.abs(Math.sin(t * 15.5) * Math.sin(t * 6.1 + 1)) * 3;
+      mouth.scale.set(mh, 1, 1); mouth.rotation.z = Math.PI / 2; mouth.scale.x = mh; mouth.scale.y = 1 + (talk || 0) * 0.6;
     };
     return g;
   };
@@ -1223,8 +1229,8 @@
     M.g.traverse(o => { if (o.isSkinnedMesh) o.visible = false; });              // hide the original patchy mesh entirely
     const B = {}; M.g.traverse(o => { if (o.isBone) B[o.name] = o; });
     const P = n => B[n].getWorldPosition(new THREE.Vector3());
-    const shirtM = K.M(shirt, { roughness: 0.62, flatShading: false }), pantM = K.M(pants, { roughness: 0.85, flatShading: false });
-    const skinM = K.M(skin, { roughness: 0.55, flatShading: false }), shoeM = K.M(shoes, { roughness: 0.45, flatShading: false });
+    const shirtM = K.M(shirt, { roughness: LPF() ? 0.9 : 0.62, flatShading: LPF() }), pantM = K.M(pants, { roughness: 0.9, flatShading: LPF() });
+    const skinM = K.M(skin, { roughness: LPF() ? 0.85 : 0.55, flatShading: LPF() }), shoeM = K.M(shoes, { roughness: LPF() ? 0.8 : 0.45, flatShading: LPF() });
     const hip = P('Hips'), abd = P('Abdomen'), tor = P('Torso'), neck = P('Neck'), cx = (P('ShoulderL').x + P('ShoulderR').x) / 2;
     const shW = Math.abs(P('UpperArmL').x - P('UpperArmR').x) / 2;
     // torso: one smooth shirt shape from the hem to the shoulders (chest on Torso, belly on Abdomen so it bends)
@@ -1270,13 +1276,59 @@
       const sg = new THREE.Group(); sg.add(shoe, sole); K.add(sg); K.pinToBone(B['Foot' + sd], sg);
     }
     // pelvis (trousers) joining the legs under the shirt
-    const pel = K.barrel([[-0.12, 0.0], [-0.08, 0.15], [-0.01, 0.235], [0.1, 0.24], [0.16, 0.0]], pantM, 0.62, 64);
+    const pel = K.barrel([[-0.12, 0.0], [-0.08, 0.14], [-0.01, 0.212], [0.05, 0.214], [0.09, 0.0]], pantM, 0.6, 64);
     pel.position.set(cx, hip.y, hip.z - 0.02); K.add(pel); K.pinToBone(B.Hips, pel);
     // head on the neck
     const head = K.maddyHead({ skin, hair });
     K.swapHead(M, head, { offset: [0, 0.215, 0.015], scale: headScale });
     M.head = head;
     return M;
+  };
+
+  // BITTU the penguin (matches char-penguin.png): faceted clay penguin, navy back, white face + belly, orange beak + feet.
+  // Beak opens with the voice; flippers gesture. b.update(t, { talk: 0..1, look: [yaw, pitch], flapL, flapR, blink, mood }).
+  K.makeBittu = ({ height = 0.85 } = {}) => {
+    const g = new THREE.Group(), s = height / 1.0;
+    const M = (c, r = 0.85) => K.M(c, { roughness: r, flatShading: true });
+    const navy = M(0x1e2133), white = M(0xf3f1ec), orange = M(0xf08a3c, 0.7), eyeM = K.M(0x0a0a0c, { roughness: 0.15 });
+    const mesh = (geo, m, x, y, z, parent = body) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; o.receiveShadow = true; parent.add(o); return o; };
+    const body = new THREE.Group(); g.add(body);
+    const torso = mesh(new THREE.IcosahedronGeometry(0.36, 2), navy, 0, 0.42, 0); torso.scale.set(1.0, 1.12, 0.92);
+    const belly = mesh(new THREE.IcosahedronGeometry(0.3, 2), white, 0, 0.36, 0.11); belly.scale.set(0.92, 1.05, 0.8);
+    const head = new THREE.Group(); head.position.set(0, 0.78, 0.02); body.add(head);
+    const skull = mesh(new THREE.IcosahedronGeometry(0.27, 2), navy, 0, 0, 0, head); skull.scale.set(1.05, 0.98, 0.98);
+    for (const sx of [-1, 1]) { const f = mesh(new THREE.IcosahedronGeometry(0.15, 2), white, sx * 0.095, -0.02, 0.15, head); f.scale.set(1, 1.15, 0.7); }
+    const eyes = [-1, 1].map(sx => { const e = mesh(new THREE.SphereGeometry(0.052, 18, 12), eyeM, sx * 0.105, 0.015, 0.245, head); e.scale.set(0.9, 1.05, 0.6);
+      const gl = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff })); gl.position.set(0.018, 0.022, 0.04); e.add(gl); return e; });
+    const beakU = new THREE.Group(); beakU.position.set(0, -0.06, 0.25); head.add(beakU);
+    const bu = mesh(new THREE.ConeGeometry(0.05, 0.1, 6), orange, 0, 0, 0.04, beakU); bu.rotation.x = Math.PI / 2; bu.scale.set(1.3, 1, 0.55);
+    const beakL = new THREE.Group(); beakL.position.set(0, -0.075, 0.24); head.add(beakL);
+    const bl = mesh(new THREE.ConeGeometry(0.04, 0.08, 6), M(0xd8742c, 0.7), 0, 0, 0.035, beakL); bl.rotation.x = Math.PI / 2; bl.scale.set(1.2, 1, 0.45);
+    const mouthIn = mesh(new THREE.SphereGeometry(0.03, 10, 8), K.M(0x5a1a14), 0, -0.07, 0.25, head); mouthIn.scale.set(1.2, 0.5, 0.4);
+    const flip = sx => { const p = new THREE.Group(); p.position.set(sx * 0.33, 0.6, 0); body.add(p);
+      const f = mesh(new THREE.IcosahedronGeometry(0.12, 1), navy, 0, -0.17, 0, p); f.scale.set(0.35, 1.3, 0.75); p.rotation.z = sx * 0.18; return p; };
+    const flL = flip(1), flR = flip(-1);
+    for (const sx of [-1, 1]) { const ft = mesh(new THREE.IcosahedronGeometry(0.075, 1), orange, sx * 0.12, 0.035, 0.08, g); ft.scale.set(1.15, 0.45, 1.5); }
+    g.scale.setScalar(s);
+    const bitt = { g, head, body, flL, flR, eyes };
+    bitt.update = (t, { talk = 0, look = [0, 0], flapL = 0, flapR = 0, blink = true, mood = 'calm' } = {}) => {
+      const bl2 = blink && ((t + 1.3) % 3.7) < 0.11 ? 0.12 : 1;
+      eyes.forEach(e => e.scale.set(0.9, 1.05 * bl2 * (mood === 'shock' ? 1.3 : 1), 0.6));
+      const open = K.clamp(talk) * 0.55 + (mood === 'shock' ? 0.35 : 0);
+      beakU.rotation.x = -open * 0.35; beakL.rotation.x = open * 0.9; mouthIn.scale.y = 0.5 + open * 2.2;
+      head.rotation.y = look[0] + Math.sin(t * 0.9) * 0.05; head.rotation.x = look[1] + (talk > 0.05 ? Math.sin(t * 7.5) * 0.04 * talk : 0) + Math.sin(t * 1.3) * 0.02;
+      head.rotation.z = Math.sin(t * 0.7 + 1) * 0.04;
+      body.position.y = Math.sin(t * 2.0) * 0.006; body.rotation.z = Math.sin(t * 1.1) * 0.02 + talk * Math.sin(t * 5) * 0.015;
+      flL.rotation.z = 0.18 + flapL; flR.rotation.z = -0.18 - flapR;
+      flL.rotation.x = -flapL * 0.5; flR.rotation.x = -flapR * 0.5;
+    };
+    bitt.update(0);
+    return bitt;
+  };
+  // Voice loudness 0..1 for whoever is speaking at t (from render.js line envelopes), smoothed for mouths.
+  K.voice = (who, t) => {
+    const l = (K.T && K.T.lines || []).find(l => l.who === who && t >= l.t && t < l.end); if (!l || !l.env) return 0;
+    const i = Math.floor((t - l.t) * 30), e = l.env; return K.clamp(((e[i] || 0) * 0.6 + (e[i - 1] || 0) * 0.25 + (e[i + 1] || 0) * 0.15) * 1.25);
   };
 
   // ------------------------------------------------------------------ boot (called by render.js with real voice timings)
