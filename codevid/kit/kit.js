@@ -687,15 +687,18 @@
     const eyes = [-1, 1].map(sx => mesh(new THREE.SphereGeometry(0.042, 8, 6), dark, sx * 0.14, 0.04, 0.36));
     const brows = [-1, 1].map(sx => mesh(new THREE.BoxGeometry(0.13, 0.03, 0.03), K.M(hair, { roughness: 0.9 }), sx * 0.15, 0.2, 0.355));
     const mouth = mesh(new THREE.BoxGeometry(0.1, 0.028, 0.02), K.M(0x4a1c12), 0, -0.19, 0.385);
+    const smile = mesh(new THREE.TorusGeometry(0.075, 0.016, 6, 14, Math.PI * 0.85), K.M(0x4a1c12), 0.012, -0.15, 0.378);
+    smile.rotation.z = Math.PI + 0.24; smile.rotation.x = -0.25; smile.visible = false;                          // a confident half-smile
     g.add(K.sweptHair(hair));
     g.userData = { eyes, brows, mouth };
     g.update = (t, { talking = false, face = 'neutral' } = {}) => {
       const blink = ((t + 0.4) % 3.4) < 0.1 ? 0.15 : 1;
-      eyes.forEach(e => e.scale.set(1, (face === 'happy' ? 0.6 : face === 'shock' ? 1.4 : 1) * blink, 1));
+      eyes.forEach(e => e.scale.set(1, (face === 'happy' ? 0.6 : face === 'smile' ? 0.8 : face === 'shock' ? 1.4 : 1) * blink, 1));
       brows.forEach((b, i) => { b.position.y = face === 'shock' ? 0.25 : 0.2; b.rotation.z = face === 'worried' ? (i ? 0.25 : -0.25) : 0; });
       let mw = face === 'happy' ? 1.35 : 1, mh = face === 'shock' ? 3 : 1;
       if (talking) mh *= 1 + Math.abs(Math.sin(t * 15.5) * Math.sin(t * 6.1 + 1)) * 3;
       mouth.scale.set(mw, mh, 1);
+      smile.visible = face === 'smile' && !talking; mouth.visible = !smile.visible;
     };
     return g;
   };
@@ -817,7 +820,8 @@
     M.play('Man_Idle', 0); M.g.updateMatrixWorld(true);
     const hoodM = K.M(hoodie, { roughness: 0.9, flatShading: true, side: THREE.DoubleSide }), pantM = K.M(pants, { roughness: 0.9, flatShading: true, side: THREE.DoubleSide });
     // long sleeves + full-length trousers: shells made from the model's own arm / leg skin
-    K.shellByBones(M, ['UpperArmL', 'UpperArmR', 'LowerArmL', 'LowerArmR'], hoodM, { inflate: 0.008, minWeight: 0.2 });
+    K.shellByBones(M, ['ShoulderL', 'ShoulderR', 'UpperArmL', 'UpperArmR', 'LowerArmL', 'LowerArmR'], hoodM, { inflate: 0.008, minWeight: 0.2 });
+    for (const sd of ['L', 'R']) K.boneTube(M, 'UpperArm' + sd, { r1: 0.086, r2: 0.074, mat: hoodM, from: -0.02, to: 1.0, seg: 12 });   // covers the tee-sleeve hem
     K.shellByBones(M, ['UpperLegL', 'UpperLegR', 'LowerLegL', 'LowerLegR'], pantM, { inflate: 0.007, minWeight: 0.2 });
     // hood (rolled behind the neck), front pocket, drawstrings
     const hood = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.6), hoodM);
