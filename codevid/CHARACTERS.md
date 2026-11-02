@@ -1,7 +1,9 @@
 # Maddie & Chotu - official characters (locked 2026-10-30)
 
 ## Maddie
-**Current look (2026-11-02): `K.makeMaddieV4()`** - bigger round head, warm skin, dark wavy hair, no glasses, black collared shirt with buttons, beige trousers, dark brown shoes. Same body, animations and `head.update` as V3 below.
+**Current look (2026-11-02): `K.makeMaddieV6()`** - built from Maddy's own photos: one smooth body (no shells/patches) riding the worker.glb rig, medium-brown skin, thick wavy black hair with short sides, short beard + moustache, thick brows, toothy smile; black collared shirt with sleeves rolled below the elbow, cream/beige trousers, brown shoes. Same play()/head.update API (default face 'smile').
+
+Previous, `K.makeMaddieV4()` - bigger round head, warm skin, dark wavy hair, no glasses, black collared shirt with buttons, beige trousers, dark brown shoes. Same body, animations and `head.update` as V3 below.
 
 Older look, V3:
 `K.makeMaddieV3()` - add `K.MADDIE_ASSET` ('assets/chars/worker.glb') to `SCENE.assets`.
