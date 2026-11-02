@@ -1,4 +1,4 @@
-/* @maddieandchotu - introduction video */
+/* @just.money.things - introduction video */
 window.SCENE = {
   setup: { bg: 0x0c4a42, fog: null, fov: 40, bloom: { strength: 0.35, radius: 0.45, threshold: 0.97 } },
   lines: [
@@ -50,7 +50,7 @@ window.SCENE = {
     c4.draw((x, W, H) => { K.text(x, '1 QUESTION / DAY', W / 2, H * 0.36, { size: 50, color: '#ffc53d' }); K.text(x, 'explained in under 60 seconds', W / 2, H * 0.72, { size: 26, color: '#d8fff1' }); }, 1);
     const follow = K.card({ w: 2.5, h: 0.78, bg: '#ff2f6d', radius: 0.39 }); follow.g.position.set(0, 3.65, 0.8);
     const handle = K.card({ w: 2.6, h: 0.5, bg: '#ffffff', radius: 0.25 }); handle.g.position.set(0, 4.5, 0.8);
-    handle.draw((x, W, H) => K.text(x, '@maddieandchotu', W / 2, H * 0.55, { size: 40, color: '#0a3d37' }), 1);
+    handle.draw((x, W, H) => K.text(x, '@just.money.things', W / 2, H * 0.55, { size: 40, color: '#0a3d37' }), 1);
     // mini cash stack for the "₹1 crore" teaser
     const mats = K.bundleMaterials(500);
     const stack = []; for (let i = 0; i < 14; i++) { const b = K.makeBundle({ mats }); b.position.set(0.12, 0.07 + i * 0.145, -0.6); b.rotation.y = 0.3; b.visible = false; stack.push(b); }
@@ -129,6 +129,6 @@ window.SCENE = {
       ['pop', L[3].t, 0.6], ['ding', L[3].end + 0.15, 0.5], ['whoosh', L[4].t, 0.6], ['whoosh', L[5].t, 0.6], ['pop', L[6].t, 0.6],
       ['pop', L[7].t + 0.1, 0.7], ['tick', L[8].t + 0.05, 1.0], ['kaching', L[8].t + 0.1, 0.7], ['rustle', L[8].t + 0.15, 0.4]];
     for (let k = 0; k < 12; k++) sfx.push(['tick', L[3].t + 0.5 + k * ((L[3].end - L[3].t - 0.3) / 12), 0.35]);
-    return { duration: D, update, shots, sfx, watermark: '@maddieandchotu', endCard: false, music: {} };
+    return { duration: D, update, shots, sfx, watermark: '@just.money.things', endCard: false, music: {} };
   },
 };

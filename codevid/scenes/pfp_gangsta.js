@@ -1,4 +1,4 @@
-/* @maddieandchotu - profile picture: Maddie & Chotu, money-gang style (1080x1080, circle-safe) */
+/* @just.money.things - profile picture: Maddie & Chotu, money-gang style (1080x1080, circle-safe) */
 window.SCENE = {
   setup: { width: 1080, height: 1080, bg: 0x0b0b10, fog: null, fov: 34, bloom: { strength: 0.5, radius: 0.5, threshold: 0.9 } },
   lines: [{ who: 'maddie', text: 'hi', say: 'Hi.' }],

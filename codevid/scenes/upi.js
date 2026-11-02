@@ -1,4 +1,4 @@
-/* @maddieandchotu - "Where does your ₹20 go when you pay by UPI?"
+/* @just.money.things - "Where does your ₹20 go when you pay by UPI?"
  * Facts: payer app -> NPCI (UPI switch) -> payer's bank verifies PIN + balance, debits -> NPCI -> payee's bank credits -> confirmation.
  * UPI PIN is encrypted on the phone (NPCI common library) and checked by the payer's bank, not by the app.
  * Volume: 24.07 billion UPI payments in Sep 2026 (NPCI) = ~80 crore a day = ~9,300 a second.
@@ -352,6 +352,6 @@ window.SCENE = {
       const v = 2 * K.clamp((t - L[2].t) / (L[10].t - L[2].t));
       return (v >= 2 ? 'DONE  ' : 'SLOW-MO  ') + v.toFixed(2) + ' s';
     };
-    return { duration: D, update, shots, sfx, counter, watermark: '@maddieandchotu', endCard: false, music: { muteFrom: L[11].t - 0.1, muteTo: L[11].t + 1.0 } };
+    return { duration: D, update, shots, sfx, counter, watermark: '@just.money.things', endCard: false, music: { muteFrom: L[11].t - 0.1, muteTo: L[11].t + 1.0 } };
   },
 };
