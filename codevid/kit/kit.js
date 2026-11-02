@@ -689,7 +689,7 @@
     const mouth = mesh(new THREE.BoxGeometry(0.1, 0.028, 0.02), K.M(0x4a1c12), 0, -0.19, 0.385);
     const smile = mesh(new THREE.TorusGeometry(0.075, 0.016, 6, 14, Math.PI * 0.85), K.M(0x4a1c12), 0.012, -0.15, 0.378);
     smile.rotation.z = Math.PI + 0.24; smile.rotation.x = -0.25; smile.visible = false;                          // a confident half-smile
-    g.add(hairStyle === 'wavy' ? K.wavyHair(hair) : K.sweptHair(hair));
+    g.add(hairStyle === 'sculpt' ? K.sculptHair(hair) : hairStyle === 'wavy' ? K.wavyHair(hair) : K.sweptHair(hair));
     g.userData = { eyes, brows, mouth };
     g.update = (t, { talking = false, face = 'neutral' } = {}) => {
       const blink = ((t + 0.4) % 3.4) < 0.1 ? 0.15 : 1;
@@ -891,7 +891,7 @@
 
   // MADDIE V4 (Nov 2026 look): bigger round head, warm skin, dark wavy hair, no glasses, black collared shirt,
   // beige trousers, dark brown shoes. Same body / animations as V3. Needs K.MADDIE_ASSET in SCENE.assets.
-  K.makeMaddieV4 = ({ height = 2.15, bulk = 1.1, shirt = 0x19191b, pants = 0xcdb894, shoes = 0x5a3520, skin = 0xc98a5c, hair = 0x2b1d15, headScale = 0.4 } = {}) => {
+  K.makeMaddieV4 = ({ height = 2.15, bulk = 1.1, shirt = 0x19191b, pants = 0xcdb894, shoes = 0x5a3520, skin = 0xc98a5c, hair = 0x2a1c14, headScale = 0.4 } = {}) => {
     const M = K.model(K.MADDIE_ASSET, { height, colors: { Shirt: shirt, Pants: pants, Skin: skin, Socks: shoes, Hair: hair } });
     M.play('Man_Idle', 0); M.g.updateMatrixWorld(true);
     M.g.traverse(o => o.isMesh && [].concat(o.material).forEach(m => { m.roughness = Math.max(m.roughness ?? 0, 0.8); m.metalness = 0; }));
@@ -914,7 +914,7 @@
     for (let i = 0; i < 4; i++) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.006, 8), btnM); b.rotation.x = Math.PI / 2; b.position.set(0, 0.16 - i * 0.11, 0.146); front.add(b); }
     K.attachToBone(M, 'Torso', front, { offset: [0, 0, 0], scale: 1 });
     M.g.scale.x *= bulk; M.g.scale.z *= bulk * 0.97;
-    const head = K.guyHead({ skin, hair, hairStyle: 'wavy' });
+    const head = K.guyHead({ skin, hair, hairStyle: 'sculpt' });
     K.swapHead(M, head, { offset: [0, 0.205, 0.012], scale: headScale });
     head.scale.x /= bulk; head.scale.z /= bulk * 0.97;
     M.head = head;
@@ -993,6 +993,66 @@
     lock(0.2, 0.37, 0.3, 1.25, 0.62, 1.05, 0.5, -0.35, -0.25);
     lock(0.11, 0.31, 0.37, 0.95, 0.42, 0.7, 1.0, -0.2, -0.6);
     for (const sx of [-1, 1]) lock(sx * 0.36, 0.2, 0.12, 0.62, 0.95, 1.05, 0, sx * 0.3, sx * 0.35);
+    return g;
+  };
+
+  // Sculpted wavy hair like the reference: thick smooth ribbons of hair that lift off the forehead, flow back over the
+  // crown with soft waves, a front wave swept to his left, and short full sides over the ears. Head radius ~0.42.
+  K.sculptHair = (color = 0x2a1c14) => {
+    const mat = K.M(color, { roughness: 0.48, metalness: 0.0, flatShading: false }), g = new THREE.Group();
+    const dir = (th, ph) => new THREE.Vector3(Math.sin(th) * Math.sin(ph), Math.cos(th), Math.sin(th) * Math.cos(ph));
+    const SX = 0.9, SY = 1.08, SZ = 0.95;                                 // the head's own scale in guyHead
+    const surf = (d, r) => new THREE.Vector3(d.x * r * SX, d.y * r * SY, d.z * r * SZ);
+    // a ribbon: centre line on/above the scalp, wide sideways, thick outward, flat underneath, tapered ends
+    const ribbon = (pts, wFn, hFn, seg = 64, rad = 14) => {
+      const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal'), pos = [], idx = [];
+      for (let i = 0; i <= seg; i++) {
+        const t = i / seg, c = curve.getPointAt(t), tan = curve.getTangentAt(t);
+        const n = c.clone().normalize(), side = new THREE.Vector3().crossVectors(tan, n).normalize(), up = new THREE.Vector3().crossVectors(side, tan).normalize();
+        const taper = Math.sqrt(Math.max(0, 1 - Math.pow(1 - Math.min(1, t / 0.07), 2))) * Math.pow(Math.min(1, (1 - t) / 0.45), 0.7);   // rounded front end, tapered tail
+        const w = wFn(t) * taper, h = hFn(t) * taper + 0.004;
+        for (let j = 0; j <= rad; j++) {
+          const a = j / rad * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+          const o = side.clone().multiplyScalar(w * ca).addScaledVector(up, sa > 0 ? h * sa : h * 0.35 * sa);
+          pos.push(c.x + o.x, c.y + o.y, c.z + o.z);
+        }
+      }
+      for (let i = 0; i < seg; i++) for (let j = 0; j < rad; j++) { const a = i * (rad + 1) + j, b = a + rad + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, mat); m.castShadow = true; g.add(m); return m;
+    };
+    // base cap so no scalp shows: high forehead, short sides, fuller back
+    const R = 0.44, cg = new THREE.SphereGeometry(R, 96, 64, 0, Math.PI * 2, 0, Math.PI * 0.7), cp = cg.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i < cp.count; i++) {
+      v.fromBufferAttribute(cp, i); const up = v.y / R, fz = v.z / R, front = Math.max(0, fz), back = Math.max(0, -fz);
+      const hl = 0.12 + front * front * 0.5 - back * back * 0.55; if (up < hl) v.y = hl * R;
+      v.multiplyScalar(1.02 + Math.max(0, up) * 0.06); cp.setXYZ(i, v.x * SX, v.y * SY, v.z * SZ);
+    }
+    cg.computeVertexNormals(); const cap = new THREE.Mesh(cg, mat); cap.castShadow = true; g.add(cap);
+    const rnd = K.rng(5);
+    // top waves: start at the forehead hairline, rise into the quiff, flow back over the crown and down the back
+    const N = 10, sag = (a, b) => new THREE.Vector3(Math.sin(b), Math.cos(b) * Math.sin(a), Math.cos(b) * Math.cos(a));   // a: forehead 0 -> crown pi/2 -> nape; b: sideways
+    for (let i = 0; i < N; i++) {
+      const f = i / (N - 1) - 0.5, wa = 0.07 + rnd() * 0.04, phase = rnd() * 6, pts = [];
+      for (let k = 0; k <= 14; k++) {
+        const s = k / 14, a = 0.6 + s * 2.55;
+        const b = f * (1.2 + s * 0.2) + Math.sin(s * Math.PI * 2.6 + phase) * wa * Math.sin(s * Math.PI) + 0.12 * Math.sin(s * Math.PI * 0.9);
+        const lift = 0.02 + (0.1 - Math.abs(f) * 0.06) * Math.exp(-Math.pow((s - 0.17) / 0.13, 2)) + 0.045 * Math.sin(s * Math.PI) * (1 - s * 0.7);
+        pts.push(surf(sag(a, b), 0.43 + lift));
+      }
+      ribbon(pts, t => 0.1 + 0.02 * Math.sin(t * Math.PI), t => 0.05 + 0.03 * Math.exp(-Math.pow((t - 0.17) / 0.16, 2)));
+    }
+    // the big front wave, lifted and swept across to his left
+    ribbon([surf(dir(0.92, -0.5), 0.445), surf(dir(0.72, -0.12), 0.52), surf(dir(0.66, 0.35), 0.525), surf(dir(0.78, 0.85), 0.5), surf(dir(1.02, 1.2), 0.455)],
+      t => 0.1, t => 0.06 + 0.02 * Math.sin(t * Math.PI));
+    ribbon([surf(dir(0.95, 0.15), 0.445), surf(dir(0.8, 0.5), 0.5), surf(dir(0.86, 0.95), 0.49), surf(dir(1.08, 1.25), 0.452)],
+      t => 0.08, t => 0.05);
+    // sides: short waves from the temples back over the tops of the ears
+    for (const sx of [-1, 1]) for (let k = 0; k < 3; k++) {
+      const ph = sx * (1.05 + k * 0.32), th = 1.08 + k * 0.1;
+      ribbon([surf(dir(th - 0.25, ph - sx * 0.1), 0.47), surf(dir(th, ph + sx * 0.25), 0.475), surf(dir(th + 0.18, ph + sx * 0.55), 0.465), surf(dir(th + 0.3, ph + sx * 0.8), 0.45)],
+        t => 0.07, t => 0.035);
+    }
     return g;
   };
 
