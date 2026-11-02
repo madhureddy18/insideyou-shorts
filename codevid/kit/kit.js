@@ -1394,6 +1394,78 @@
     robo.update(0);
     return robo;
   };
+
+  // Toy Maddie (ai.jugaadd): smooth rounded-box chibi that matches Robo. Seated at a desk by default.
+  // Origin = floor under the chair seat centre, facing +z.
+  K.makeToyMaddie = ({ skin = 0xf0c4a0, hair = 0x2a1c15, shirt = 0x1c1c22, pants = 0xd2bf98, shoe = 0x2b2b30, seatY = 0.5 } = {}) => {
+    const g = new THREE.Group(), RB = window.RoundedBoxGeometry;
+    const M = (c, r = 0.6) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: 0 });
+    const skinM = M(skin, 0.55), hairM = M(hair, 0.7), shirtM = M(shirt, 0.8), pantsM = M(pants, 0.8), shoeM = M(shoe, 0.6), dark = M(0x1a0f0c, 0.4), white = new THREE.MeshBasicMaterial({ color: 0xffffff }), mouthM = M(0x5a2420, 0.6), tongueM = M(0xd9707a, 0.6), browM = M(0x24170f, 0.7);
+    const add = (geo, m, x, y, z, parent) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = o.receiveShadow = true; parent.add(o); return o; };
+    const cap = (r, len, m, parent) => { const o = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 8, 16), m); o.castShadow = o.receiveShadow = true; parent.add(o); return o; };
+    const body = new THREE.Group(); body.position.y = seatY; g.add(body);
+    // legs (seated): thighs forward, shins down
+    for (const sx of [-1, 1]) {
+      const th = cap(0.075, 0.26, pantsM, body); th.rotation.x = Math.PI / 2; th.position.set(sx * 0.11, 0.06, 0.17);
+      const sh = cap(0.068, 0.32, pantsM, g); sh.position.set(sx * 0.11, seatY - 0.2, 0.36);
+      add(new RB(0.13, 0.08, 0.22, 3, 0.035), shoeM, sx * 0.11, 0.04, 0.4, g);
+    }
+    add(new RB(0.36, 0.14, 0.3, 4, 0.06), pantsM, 0, 0.06, 0.02, body);                    // hips
+    const chest = new THREE.Group(); chest.position.set(0, 0.12, 0); body.add(chest);
+    add(new RB(0.4, 0.38, 0.26, 5, 0.1), shirtM, 0, 0.19, 0, chest);                       // torso (black tee)
+    add(new THREE.CylinderGeometry(0.055, 0.06, 0.06, 16), skinM, 0, 0.39, 0, chest);       // neck
+    // arms: shoulder group -> upper arm down, elbow group -> forearm forward to the desk
+    const arms = [-1, 1].map(sx => {
+      const sh = new THREE.Group(); sh.position.set(sx * 0.235, 0.32, 0); chest.add(sh);
+      add(new THREE.SphereGeometry(0.075, 18, 12), shirtM, 0, 0, 0, sh);
+      const up = cap(0.06, 0.18, shirtM, sh); up.position.set(0, -0.12, 0);
+      const el = new THREE.Group(); el.position.set(0, -0.24, 0); sh.add(el);
+      const fo = cap(0.052, 0.2, skinM, el); fo.rotation.x = Math.PI / 2; fo.position.set(0, 0, 0.12);
+      const hand = add(new THREE.SphereGeometry(0.06, 16, 12), skinM, 0, 0, 0.27, el); hand.scale.set(1, 0.7, 1.15);
+      sh.rotation.x = -0.25; el.rotation.x = -0.15; sh.rotation.z = sx * 0.06;
+      return { sh, el, hand, sx };
+    });
+    // head
+    const head = new THREE.Group(); head.position.set(0, 0.38, 0.01); head.scale.setScalar(1.22); chest.add(head);
+    const skull = add(new RB(0.44, 0.46, 0.4, 6, 0.15), skinM, 0, 0.24, 0, head);
+    for (const sx of [-1, 1]) { const e = add(new THREE.SphereGeometry(0.05, 14, 10), skinM, sx * 0.225, 0.22, -0.01, head); e.scale.set(0.5, 1, 0.8); }
+    // hair: cap + swept fringe + sides
+    add(new RB(0.48, 0.2, 0.44, 5, 0.09), hairM, 0, 0.44, -0.015, head);
+    add(new RB(0.47, 0.3, 0.12, 4, 0.05), hairM, 0, 0.3, -0.17, head);                    // back
+    for (const sx of [-1, 1]) add(new RB(0.06, 0.2, 0.3, 3, 0.025), hairM, sx * 0.225, 0.34, -0.03, head);  // sides
+    [[-0.13, 0.4, 0.2, 0.2, -0.25], [0.0, 0.41, 0.205, 0.22, -0.12], [0.13, 0.42, 0.2, 0.18, 0.05]].forEach(([x, y, z, w, rz]) => {
+      const f = add(new RB(w, 0.12, 0.1, 3, 0.045), hairM, x, y, z, head); f.rotation.z = rz; f.rotation.x = -0.25; });
+    const tuft = add(new RB(0.14, 0.1, 0.14, 3, 0.045), hairM, 0.05, 0.54, 0.02, head); tuft.rotation.z = -0.4;
+    // face
+    const eyes = [-1, 1].map(sx => { const e = new THREE.Group(); e.position.set(sx * 0.095, 0.25, 0.2); head.add(e);
+      const b = add(new THREE.SphereGeometry(0.04, 18, 12), dark, 0, 0, 0, e); b.scale.set(0.85, 1.1, 0.45);
+      const gl = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 6), white); gl.position.set(0.012, 0.016, 0.017); e.add(gl); return e; });
+    const brows = [-1, 1].map(sx => { const b = add(new RB(0.09, 0.022, 0.02, 2, 0.01), browM, sx * 0.1, 0.33, 0.2, head); return b; });
+    const nose = add(new THREE.SphereGeometry(0.025, 12, 8), skinM, 0, 0.19, 0.205, head); nose.scale.set(1, 0.8, 0.7);
+    const mouthG = new THREE.Group(); mouthG.position.set(0, 0.11, 0.2); head.add(mouthG);
+    const mouthO = add(new THREE.SphereGeometry(0.05, 20, 12), mouthM, 0, 0, 0, mouthG); mouthO.scale.set(1, 0.15, 0.3);
+    const tongue = add(new THREE.SphereGeometry(0.03, 12, 8), tongueM, 0, -0.012, 0.004, mouthG); tongue.scale.set(1, 0.3, 0.3);
+    const smile = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.009, 8, 24, Math.PI), mouthM); smile.rotation.z = Math.PI; smile.position.set(0, 0.03, 0.005); mouthG.add(smile);
+    const cheeks = [-1, 1].map(sx => { const c = new THREE.Mesh(new THREE.CircleGeometry(0.03, 16), new THREE.MeshBasicMaterial({ color: 0xff8a7a, transparent: true, opacity: 0.25 })); c.position.set(sx * 0.15, 0.17, 0.202); head.add(c); return c; });
+    const mad = { g, body, chest, head, arms, eyes };
+    mad.update = (t, { talk = 0, face = 'neutral', look = [0, 0], type = 0, lean = 0 } = {}) => {
+      const bl = ((t + 0.4) % 4.1) < 0.12 ? 0.1 : 1, shock = face === 'shock', sm = face === 'smile', worried = face === 'worried';
+      eyes.forEach(e => e.scale.set(shock ? 1.2 : 1, bl * (shock ? 1.3 : 1), 1));
+      brows.forEach((b, i) => { const sx = i ? 1 : -1; b.position.y = 0.33 + (shock ? 0.035 : worried ? 0.012 : sm ? 0.008 : 0); b.rotation.z = worried ? -sx * 0.25 : shock ? sx * 0.08 : 0; });
+      const open = K.clamp(talk) + (shock ? 0.9 : 0);
+      const talking = open > 0.04;
+      mouthO.visible = talking || !sm; smile.visible = sm && !talking;
+      mouthO.scale.set(talking ? 0.8 + 0.2 * Math.min(open, 1) : (sm ? 1 : 0.6), talking ? 0.15 + Math.min(open, 1.2) * 0.75 : 0.12, 0.3);
+      tongue.visible = open > 0.35; tongue.scale.y = 0.3 + open * 0.3;
+      head.rotation.y = look[0] + Math.sin(t * 0.7) * 0.03;
+      head.rotation.x = look[1] + Math.sin(t * 1.1) * 0.015 + (talk > 0.05 ? Math.sin(t * 6.5) * 0.04 * talk : 0) - (shock ? 0.08 : 0);
+      head.rotation.z = Math.sin(t * 0.5 + 2) * 0.025 + (worried ? 0.06 : 0);
+      chest.rotation.x = -lean * 0.25 + Math.sin(t * 1.6) * 0.008; chest.scale.y = 1 + Math.sin(t * 1.6) * 0.006;
+      arms.forEach(a => { const k = type * Math.max(0, Math.sin(t * 13 + (a.sx > 0 ? 0 : 1.7))); a.el.rotation.x = -0.15 + k * 0.08; a.sh.rotation.x = -0.25 + lean * 0.25; });
+    };
+    mad.update(0);
+    return mad;
+  };
   // Voice loudness 0..1 for whoever is speaking at t (from render.js line envelopes), smoothed for mouths.
   K.voice = (who, t) => {
     const l = (K.T && K.T.lines || []).find(l => l.who === who && t >= l.t && t < l.end); if (!l || !l.env) return 0;
