@@ -31,3 +31,9 @@ Older look, V3:
 - `K.makeRobo({ height, halo:false })` — orange boxy robot: rounded head, amber ear pads, antenna with amber bulb (glows when talking), ring eyes, amber mouth bar that opens with the voice, small body + arms + grey feet. **No halo, no gears.**
 - Maddie calls it "Claude". Original design (not the Anthropic logo). Captions colour: yellow (Bloc style).
 - Look reference: out/robo_look_preview/t_000.50.jpg
+
+## ai.jugaadd reel rules (2026-11-03)
+- Maddie = `K.makeToyMaddie` v2 (joined limbs, small careful talking mouth). Sidekick = `K.makeRobo` ("Claude"), no halo.
+- NO episode labels (no "EP 1/EP 2") anywhere: video, captions, PDFs, pages.
+- Subtitles higher: capMarginV ≈ 330, capSize 54. Keep HUD graphics off faces.
+- Template: scenes/aij_resume.js
