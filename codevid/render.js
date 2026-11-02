@@ -118,12 +118,12 @@ function mix(info, T, D) {
 // ---------------------------------------------------------------- captions (ASS)
 const ts = t => `0:${String(Math.floor(t / 60)).padStart(2, '0')}:${(t % 60).toFixed(2).padStart(5, '0')}`;
 function captions(info, T, D, file) {
-  const font = 'DejaVu Sans';
+  const font = info.capFont || 'DejaVu Sans', capV = info.capMarginV || 470;
   const style = (n, size, prim, out, back, border, outline, shadow, align, mv, spacing = 0) => `Style: ${n},${font},${size},${prim},${prim},${out},${back},-1,0,0,0,100,100,${spacing},0,${border},${outline},${shadow},${align},70,70,${mv},1`;
   const head = '[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 0\n\n[V4+ Styles]\n' +
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n' +
-    [style('Raju', 72, '&H00FFFFFF', '&H00101010', '&H96000000', 1, 7, 3, 2, 470),
-     style('Bloc', 72, '&H0036C8FF', '&H00101010', '&H96000000', 1, 7, 3, 2, 470),
+    [style('Raju', 72, '&H00FFFFFF', '&H00101010', '&H96000000', 1, 7, 3, 2, capV),
+     style('Bloc', 72, '&H0036C8FF', '&H00101010', '&H96000000', 1, 7, 3, 2, capV),
      style('Count', 64, '&H00FFFFFF', '&H00000000', '&HC8301808', 3, 18, 0, 8, 150, 2),
      style('Badge', 46, '&H00FFFFFF', '&H00000000', '&HB4E46F2F', 3, 16, 0, 8, 160, 2),
      style('Big', 104, '&H0036C8FF', '&H00000000', '&H96000000', 1, 9, 4, 8, 330, 1),
@@ -136,7 +136,7 @@ function captions(info, T, D, file) {
     const words = l.text.split(/\s+/), chunks = [];
     for (let k = 0; k < words.length;) { const n = words.length - k <= 4 ? words.length - k : 3; chunks.push(words.slice(k, k + n).join(' ')); k += n; }
     const span = (l.end - l.t) / chunks.length;
-    chunks.forEach((c, k) => ev.push(`Dialogue: 1,${ts(l.t + k * span)},${ts(l.t + (k + 1) * span + (k === chunks.length - 1 ? 0.15 : 0))},${(l.who === 'bloc' || l.who === 'chotu') ? 'Bloc' : 'Raju'},,0,0,0,,{\\fscx88\\fscy88\\t(0,110,\\fscx100\\fscy100)}${esc(c)}`));
+    chunks.forEach((c, k) => ev.push(`Dialogue: 1,${ts(l.t + k * span)},${ts(l.t + (k + 1) * span + (k === chunks.length - 1 ? 0.15 : 0))},${(l.who === 'bloc' || l.who === 'chotu' || l.who === 'bittu') ? 'Bloc' : 'Raju'},,0,0,0,,{\\fscx88\\fscy88\\t(0,110,\\fscx100\\fscy100)}${esc(c)}`));
   }
   for (const b of info.badges) ev.push(`Dialogue: 2,${ts(b.t)},${ts(b.end)},Badge,,0,0,0,,{\\fad(120,120)}${esc(b.text)}`);
   for (const b of info.big) ev.push(`Dialogue: 3,${ts(b.t)},${ts(b.end)},Big,,0,0,0,,{\\fscx30\\fscy30\\t(0,180,\\fscx112\\fscy112)\\t(180,300,\\fscx100\\fscy100)}${esc(b.text)}`);

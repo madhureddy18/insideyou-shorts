@@ -23,6 +23,8 @@
     await load(new URLSearchParams(location.search).get('scene'));
     await MeshoptDecoder.ready;
     for (const url of (window.SCENE.assets || [])) window.ASSETS[url] = await window.GLTF.load(url);   // 3D models, loaded before render
+    window.IMAGES = {};                 // 2D images (character cutouts etc.), loaded before render
+    for (const url of (window.SCENE.images || [])) window.IMAGES[url] = await new Promise((ok, bad) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => bad(new Error('could not load ' + url)); im.src = url; });
     window.sceneLoaded = true;          // render.js then calls K.boot(timing)
   } catch (e) { window.bootError = String(e && e.stack || e); }
 </script>

@@ -22,11 +22,12 @@ VOICES = {
     "narrator": (16, 1.0),
     "speaker": (33, 0.95),   # Hindi female voice for the payment soundbox
     "raju": (18, 1.08), "bloc": (16, 0.98),
+    "bittu": (26, 1.2),      # bm_george - dry, calm British genius (the penguin)
 }
 # exact pronunciations for our names / Indian words (Kokoro phoneme symbols, space separated)
 CUSTOM = {
     "maddie": "m ˈ æ d i", "chotu": "ʧ ˈ O t u", "chotus": "ʧ ˈ O t u z", "lakh": "l ˈ ɑ k", "lakhs": "l ˈ ɑ k s",
-    "crore": "k ɹ ˈ O ɹ", "crores": "k ɹ ˈ O ɹ z", "paisa": "p ˈ I s ə", "rupees": "ɹ u p ˈ i z", "wala": "w ˈ ɑ l ə", "wala's": "w ˈ ɑ l ə z", "chai": "ʧ ˈ I",
+    "crore": "k ɹ ˈ O ɹ", "crores": "k ɹ ˈ O ɹ z", "paisa": "p ˈ I s ə", "rupees": "ɹ u p ˈ i z", "wala": "w ˈ ɑ l ə", "wala's": "w ˈ ɑ l ə z", "chai": "ʧ ˈ I", "bittu": "b ˈ ɪ t u", "ambani": "ɑ m b ˈ ɑ n i", "ambani's": "ɑ m b ˈ ɑ n i z",
 }
 ESPEAK_MAP = [("aɪ", "I"), ("aʊ", "W"), ("eɪ", "A"), ("ɔɪ", "Y"), ("oʊ", "O"), ("əʊ", "O"), ("tʃ", "ʧ"), ("dʒ", "ʤ"),
               ("ɚ", "əɹ"), ("ɝ", "ɜɹ"), ("ɾ", "T"), ("ɐ", "ə"), ("ᵻ", "ɪ"), ("r", "ɹ"), ("ː", ""), ("ʔ", ""), ("̩", "")]

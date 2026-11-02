@@ -1291,7 +1291,7 @@
     window.sceneInfo = () => ({
       duration: R.duration, sfx: R.sfx || [], badges: R.badges || [], big: R.big || [], music: R.music || {},
       counter: R.counter ? Array.from({ length: Math.ceil(R.duration * 15) }, (_, i) => R.counter(i / 15)) : null,
-      endCard: R.endCard, watermark: R.watermark,
+      endCard: R.endCard, watermark: R.watermark, capFont: R.capFont, capMarginV: R.capMarginV,
     });
     window.ready = true;
   };
