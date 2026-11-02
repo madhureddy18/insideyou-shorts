@@ -26,3 +26,8 @@ Older look, V3:
 - `K.makeRobo({ height: 0.9 })` — orange boxy robot, amber ear pads, antenna bulb, grey ring eyes, yellow mouth bar, small body + feet. **No halo, no gears.**
 - Talking: `robo.update(t, { talk: K.voice(who, t), mood: 'calm'|'smile'|'shock', look: [yaw, pitch] })`.
 - Never use the real Claude logo or the name "Claude" for the character; the tool can be named in scripts.
+
+## Claude (the robot) — LOCKED 2026-11-03
+- `K.makeRobo({ height, halo:false })` — orange boxy robot: rounded head, amber ear pads, antenna with amber bulb (glows when talking), ring eyes, amber mouth bar that opens with the voice, small body + arms + grey feet. **No halo, no gears.**
+- Maddie calls it "Claude". Original design (not the Anthropic logo). Captions colour: yellow (Bloc style).
+- Look reference: out/robo_look_preview/t_000.50.jpg
