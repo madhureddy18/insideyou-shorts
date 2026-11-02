@@ -175,10 +175,10 @@ function captions(info, T, D, file) {
     fs.writeFileSync(path.join(dir, 'timing.json'), JSON.stringify({ D, lines: T.lines.map(({ wav, ...l }) => l) }, null, 1));
     console.log(`preview: ${times.length} stills in ${dir} (video would be ${D.toFixed(1)}s)`);
   } else {
-    const fdir = path.join(WORK, 'frames'); fs.rmSync(fdir, { recursive: true, force: true }); fs.mkdirSync(fdir, { recursive: true });
+    const fdir = path.join(WORK, 'frames'); const reuse = flag('--reuse-frames') && fs.existsSync(fdir); if (!reuse) { fs.rmSync(fdir, { recursive: true, force: true }); fs.mkdirSync(fdir, { recursive: true }); }
     const N = Math.round(D * FPS), t0 = Date.now();
     console.log(`rendering ${NAME}: ${D.toFixed(1)}s, ${N} frames`);
-    for (let i = 0; i < N; i++) { await shot(i / FPS, path.join(fdir, `f_${String(i).padStart(5, '0')}.jpg`)); if (i % 90 === 0) console.log(`  frame ${i}/${N}  ${((Date.now() - t0) / 1000).toFixed(0)}s`); }
+    for (let i = 0; i < N; i++) { if (reuse && fs.existsSync(path.join(fdir, `f_${String(i).padStart(5, '0')}.jpg`))) continue; await shot(i / FPS, path.join(fdir, `f_${String(i).padStart(5, '0')}.jpg`)); if (i % 90 === 0) console.log(`  frame ${i}/${N}  ${((Date.now() - t0) / 1000).toFixed(0)}s`); }
     const a = mix(info, T, D);
     const ass = path.join(WORK, 'caps.ass'); captions(info, T, D, ass);
     const out = path.join(OUT, NAME + '.mp4');

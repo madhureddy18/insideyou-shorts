@@ -239,18 +239,18 @@ window.SCENE = {
     };
 
     const sfx = [
-      { t: 0.05, name: 'pop' }, { t: 0.35, name: 'pop' }, { t: 0.85, name: 'pop' },
-      { t: E(1) + 0.02, name: 'tick' }, { t: E(1) + 1.02, name: 'tick' }, { t: E(1) + 2.02, name: 'tick' },
-      { t: B(2) + 0.25, name: 'pop' },
-      { t: B(3), name: 'whoosh' }, { t: B(3) + 1.3, name: 'coin' }, { t: B(4) + 1.0, name: 'coin' },
-      { t: B(5) + 0.15, name: 'ding' },
-      { t: B(6), name: 'whoosh' }, { t: B(7) + 1.4, name: 'kaching' },
-      { t: B(8), name: 'pop' },
-      { t: B(9), name: 'whoosh' }, { t: B(10), name: 'bass' },
-      { t: Math.max(0, B(12) - 1.6), name: 'riser' }, { t: B(12) + 1.0, name: 'ding' },
-      { t: B(13), name: 'bass' }, { t: B(13), name: 'thud' },
-      { t: B(14), name: 'whoosh' }, { t: B(15) + 0.1, name: 'pop' },
-      { t: B(16), name: 'whoosh' }, { t: E(16) - 0.9, name: 'ding' },
+      ['pop', 0.05, 0.7], ['pop', 0.35, 0.7], ['pop', 0.85, 0.7],
+      ['tick', E(1) + 0.02, 0.7], ['tick', E(1) + 1.02, 0.7], ['tick', E(1) + 2.02, 0.7],
+      ['pop', B(2) + 0.25, 0.7],
+      ['whoosh', B(3), 0.7], ['coin', B(3) + 1.3, 0.7], ['coin', B(4) + 1.0, 0.7],
+      ['ding', B(5) + 0.15, 0.7],
+      ['whoosh', B(6), 0.7], ['kaching', B(7) + 1.4, 0.7],
+      ['pop', B(8), 0.7],
+      ['whoosh', B(9), 0.7], ['bass', B(10), 0.7],
+      ['riser', Math.max(0, B(12) - 1.6), 0.5], ['ding', B(12) + 1.0, 0.7],
+      ['bass', B(13), 0.7], ['thud', B(13), 0.7],
+      ['whoosh', B(14), 0.7], ['pop', B(15) + 0.1, 0.7],
+      ['whoosh', B(16), 0.7], ['ding', E(16) - 0.9, 0.7],
     ];
     return { duration: D, update, shots: [{ t: [0, D + 5], from: { pos: [0, 0, 10], look: [0, 0, 0] } }], sfx,
       watermark: '@just.money.things', endCard: false, music: {}, capFont: 'Inter Display', capMarginV: 640 };
