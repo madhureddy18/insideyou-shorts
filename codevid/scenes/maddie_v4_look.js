@@ -9,7 +9,7 @@ window.SCENE = {
     const key = new THREE.DirectionalLight(0xffffff, 2.3); key.position.set(-2.5, 3.5, 4); key.castShadow = true; K.scene.add(key);
     const fill = new THREE.DirectionalLight(0xffd2a6, 0.9); fill.position.set(3, 1.5, 3); K.scene.add(fill);
     const rim = new THREE.DirectionalLight(0xffffff, 1.4); rim.position.set(1.5, 3, -4); K.scene.add(rim);
-    const M = K.makeMaddieV4(); M.g.rotation.y = -0.3;
+    const M = K.makeMaddieV5(); M.g.rotation.y = -0.3;
     const update = t => { M.play('Man_Idle', 0.6); M.head.update(1, { face: 'neutral' }); M.head.rotation.set(-0.04, 0.22, 0); };
     return { duration: 2, update, shots: [
       { t: [0, 1], from: { pos: [-0.5, 1.4, 6.4], look: [0, 1.25, 0] } },

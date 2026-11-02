@@ -921,6 +921,113 @@
     return M;
   };
 
+  // Smooth shading for faceted meshes: averages the normals of vertices that share a position (keeps skin weights intact).
+  K.smoothNormals = (geo) => {
+    if (!geo.attributes.normal) geo.computeVertexNormals();
+    const P = geo.attributes.position, N = geo.attributes.normal, acc = new Map();
+    const key = v => `${P.getX(v).toFixed(4)},${P.getY(v).toFixed(4)},${P.getZ(v).toFixed(4)}`;
+    for (let v = 0; v < P.count; v++) { const k = key(v), a = acc.get(k) || [0, 0, 0]; a[0] += N.getX(v); a[1] += N.getY(v); a[2] += N.getZ(v); acc.set(k, a); }
+    for (let v = 0; v < P.count; v++) { const a = acc.get(key(v)), l = Math.hypot(...a) || 1; N.setXYZ(v, a[0] / l, a[1] / l, a[2] / l); }
+    N.needsUpdate = true; return geo;
+  };
+  const SM = (c, o = {}) => K.M(c, { roughness: 0.7, flatShading: false, ...o });
+  // Clean smooth cartoon head (soft skin, small dark eyes with a glint, tiny mouth). Radius ~0.42 at the origin.
+  K.softHead = ({ skin = 0xc98a5c, hair = 0x2a1c14 } = {}) => {
+    const g = new THREE.Group(), skinM = SM(skin, { roughness: 0.62 }), dark = SM(0x15100c, { roughness: 0.25 });
+    const mesh = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; g.add(o); return o; };
+    // skull + jaw in one smooth shape: rounder on top, a gentle chin
+    const hg = new THREE.SphereGeometry(0.42, 64, 48), hp = hg.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i < hp.count; i++) {
+      v.fromBufferAttribute(hp, i); const y = v.y / 0.42;
+      if (y < 0) { const k = -y; v.x *= 1 - k * k * 0.22; v.z *= 1 - k * k * 0.12; v.y *= 1 + k * 0.1; v.z += k * k * 0.03; }
+      hp.setXYZ(i, v.x, v.y, v.z);
+    }
+    hg.computeVertexNormals();
+    mesh(hg, skinM, 0, 0, 0).scale.set(0.9, 1.1, 0.95);
+    for (const sx of [-1, 1]) { const e = mesh(new THREE.SphereGeometry(0.075, 20, 14), skinM, sx * 0.375, -0.02, -0.03); e.scale.set(0.5, 1, 0.75); }
+    mesh(new THREE.SphereGeometry(0.05, 20, 14), skinM, 0, -0.06, 0.395).scale.set(1, 1.15, 0.9);
+    const eyes = [-1, 1].map(sx => { const e = mesh(new THREE.SphereGeometry(0.036, 20, 14), dark, sx * 0.135, 0.04, 0.37); e.scale.set(0.9, 1.1, 0.6);
+      const gl = new THREE.Mesh(new THREE.SphereGeometry(0.01, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffffff })); gl.position.set(0.012, 0.014, 0.03); e.add(gl); return e; });
+    const brows = [-1, 1].map(sx => { const b = mesh(new THREE.CapsuleGeometry(0.014, 0.08, 4, 10), SM(hair), sx * 0.14, 0.17, 0.375); b.rotation.z = Math.PI / 2 + sx * 0.08; return b; });
+    const mouth = mesh(new THREE.CapsuleGeometry(0.012, 0.032, 4, 10), SM(0x3a1810), 0, -0.2, 0.39); mouth.rotation.z = Math.PI / 2;
+    const smile = mesh(new THREE.TorusGeometry(0.06, 0.013, 10, 24, Math.PI * 0.8), SM(0x3a1810), 0, -0.165, 0.383);
+    smile.rotation.z = Math.PI + Math.PI * 0.1; smile.rotation.x = -0.2; smile.visible = false;
+    g.add(K.softWavyHair(hair));
+    g.userData = { eyes, brows, mouth };
+    g.update = (t, { talking = false, face = 'neutral' } = {}) => {
+      const blink = ((t + 0.4) % 3.4) < 0.1 ? 0.15 : 1;
+      eyes.forEach(e => e.scale.set(0.9, 1.1 * (face === 'happy' ? 0.6 : face === 'shock' ? 1.4 : 1) * blink, 0.6));
+      brows.forEach((b, i) => { b.position.y = face === 'shock' ? 0.22 : 0.17; b.rotation.z = Math.PI / 2 + (i ? 1 : -1) * (face === 'worried' ? -0.25 : 0.08); });
+      let mh = face === 'shock' ? 2.5 : 1;
+      if (talking) mh *= 1 + Math.abs(Math.sin(t * 15.5) * Math.sin(t * 6.1 + 1)) * 3;
+      mouth.scale.set(mh, face === 'happy' ? 1.3 : 1, 1);
+      smile.visible = (face === 'smile' || face === 'happy') && !talking; mouth.visible = !smile.visible;
+    };
+    return g;
+  };
+  // One-piece smooth wavy hair: thick on top, lifted off the forehead, soft waves falling to one side and over the ears.
+  K.softWavyHair = (color = 0x2a1c14) => {
+    const mat = SM(color, { roughness: 0.5 }), g = new THREE.Group();
+    const R = 0.455, geo = new THREE.SphereGeometry(R, 128, 80, 0, Math.PI * 2, 0, Math.PI * 0.66), p = geo.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i);
+      const up = v.y / R, fz = v.z / R, front = Math.max(0, fz), back = Math.max(0, -fz), ang = Math.atan2(v.x, v.z);
+      // hairline: high forehead, short sides above the ears, lower at the back
+      const hl = 0.14 + front * front * 0.42 - back * back * 0.5;
+      if (up < hl) v.y = hl * R;
+      const u = Math.min(1, Math.max(0, (v.y / R - hl) / 0.35));        // 0 at the hairline -> 1 higher up (thin edge, full top)
+      const vol = 1 + u * (0.05 + Math.pow(Math.max(0, up), 1.4) * 0.22 + front * Math.max(0, up) * 0.14);
+      v.multiplyScalar(vol);
+      // broad soft waves running back from the forehead, brushed to one side
+      const wave = Math.sin(ang * 4.0 + up * 5.5) * 0.028 + Math.sin(ang * 7.0 - up * 6.0 + 1.3) * 0.012;
+      v.addScaledVector(v.clone().normalize(), wave * u);
+      v.x += u * Math.max(0, up - 0.1) * 0.06;
+      p.setXYZ(i, v.x, v.y, v.z);
+    }
+    geo.computeVertexNormals();
+    const shell = new THREE.Mesh(geo, mat); shell.scale.set(0.98, 1.0, 1.0); shell.position.set(0, 0.0, -0.01); shell.castShadow = true; g.add(shell);
+    // wavy front edge: a few soft locks along the hairline, swept to his left, one dipping onto the forehead
+    const lock = (x, y, z, sx, sy, sz, rx, ry, rz) => { const o = new THREE.Mesh(new THREE.SphereGeometry(0.1, 40, 24), mat); o.position.set(x, y, z); o.scale.set(sx, sy, sz); o.rotation.set(rx, ry, rz); o.castShadow = true; g.add(o); };
+    lock(-0.2, 0.36, 0.3, 1.25, 0.62, 1.1, 0.5, 0.35, 0.45);
+    lock(0.0, 0.42, 0.33, 1.35, 0.66, 1.1, 0.55, 0.0, 0.2);
+    lock(0.2, 0.37, 0.3, 1.25, 0.62, 1.05, 0.5, -0.35, -0.25);
+    lock(0.11, 0.31, 0.37, 0.95, 0.42, 0.7, 1.0, -0.2, -0.6);
+    for (const sx of [-1, 1]) lock(sx * 0.36, 0.2, 0.12, 0.62, 0.95, 1.05, 0, sx * 0.3, sx * 0.35);
+    return g;
+  };
+
+  // MADDIE V5 (clean smooth look): same outfit as V4 but smooth-shaded body, soft head and one-piece wavy hair.
+  K.makeMaddieV5 = ({ height = 2.15, bulk = 1.08, shirt = 0x1b1b1d, pants = 0xcdb894, shoes = 0x5a3520, skin = 0xc98a5c, hair = 0x2a1c14, headScale = 0.42 } = {}) => {
+    const M = K.model(K.MADDIE_ASSET, { height, colors: { Shirt: shirt, Pants: pants, Skin: skin, Socks: shoes, Hair: hair } });
+    M.play('Man_Idle', 0); M.g.updateMatrixWorld(true);
+    M.g.traverse(o => { if (!o.isMesh) return; o.geometry = K.smoothNormals(o.geometry.clone());
+      [].concat(o.material).forEach(m => { m.flatShading = false; m.roughness = 0.7; m.metalness = 0; m.needsUpdate = true; }); });
+    const shirtM = SM(shirt, { roughness: 0.7, side: THREE.DoubleSide }), pantM = SM(pants, { roughness: 0.85, side: THREE.DoubleSide });
+    const smoothAll = list => list.forEach(m => K.smoothNormals(m.geometry));
+    smoothAll(K.shellByBones(M, ['ShoulderL', 'ShoulderR', 'UpperArmL', 'UpperArmR', 'LowerArmL', 'LowerArmR'], shirtM, { inflate: 0.006, minWeight: 0.2 }));
+    for (const sd of ['L', 'R']) { K.boneTube(M, 'UpperArm' + sd, { r1: 0.09, r2: 0.077, mat: shirtM, from: -0.04, to: 1.06, seg: 32 }); K.boneTube(M, 'LowerArm' + sd, { r1: 0.075, r2: 0.06, mat: shirtM, from: -0.06, to: 0.9, seg: 32 }); }
+    smoothAll(K.shellByBones(M, ['UpperLegL', 'UpperLegR', 'LowerLegL', 'LowerLegR'], pantM, { inflate: 0.008, minWeight: 0.2 }));
+    // shirt collar: smooth stand-up band + two soft pointed flaps
+    const colM = SM(0x2b2b30, { roughness: 0.6, side: THREE.DoubleSide }), colG = new THREE.Group();
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.083, 0.098, 0.055, 40, 1, true), colM); colG.add(band);
+    for (const sx of [-1, 1]) {
+      const sh = new THREE.Shape(); sh.moveTo(0, 0.01); sh.lineTo(sx * 0.1, -0.005); sh.lineTo(sx * 0.035, -0.135); sh.lineTo(0, 0.01);
+      const flap = new THREE.Mesh(new THREE.ExtrudeGeometry(sh, { depth: 0.008, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.006, bevelSegments: 3 }), colM);
+      flap.position.set(sx * 0.008, -0.005, 0.088); flap.rotation.set(-0.32, sx * 0.3, 0); colG.add(flap);
+    }
+    K.attachToBone(M, 'Neck', colG, { offset: [0, -0.035, -0.005], scale: 1 });
+    // faint placket + small buttons
+    const front = new THREE.Group(), btnM = SM(0x2a2a2e, { roughness: 0.35 });
+    for (let i = 0; i < 4; i++) { const b = new THREE.Mesh(new THREE.SphereGeometry(0.008, 12, 8), btnM); b.scale.z = 0.5; b.position.set(0, 0.15 - i * 0.11, 0.142); front.add(b); }
+    K.attachToBone(M, 'Torso', front, { offset: [0, 0, 0], scale: 1 });
+    M.g.scale.x *= bulk; M.g.scale.z *= bulk * 0.97;
+    const head = K.softHead({ skin, hair });
+    K.swapHead(M, head, { offset: [0, 0.21, 0.012], scale: headScale });
+    head.scale.x /= bulk; head.scale.z /= bulk * 0.97;
+    M.head = head;
+    return M;
+  };
+
   // ------------------------------------------------------------------ boot (called by render.js with real voice timings)
   K.boot = (T) => {
     const S = window.SCENE;
