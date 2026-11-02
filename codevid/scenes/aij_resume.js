@@ -1,4 +1,4 @@
-/* @ai.jugaadd — EP 1 "300 applications on Naukri. Zero calls."
+/* @ai.jugaadd "300 applications on Naukri. Zero calls."
    Maddie (toy 3D) at his desk at night; Claude (orange robot) stands on the desk and fixes his resume approach.
    CTA: comment RESUME for the prompt. */
 window.SCENE = {
@@ -185,8 +185,6 @@ window.SCENE = {
     const hudDraw = t => {
       h.clearRect(0, 0, HW, HH);
       h.fillStyle = 'rgba(255,255,255,0.18)'; h.fillRect(0, 0, HW, 10); h.fillStyle = C.orange; h.fillRect(0, 0, HW * cl(t / D), 10);
-      // series tag
-      { const a = winH(t, 0.0, E(1)); if (a > 0) hsc(HW / 2, 120, popH(t, 0.05) * a, () => hchip('AI JUGAAD · EP 1', HW / 2, 120, C.orange, '#fff', 38)); }
       // HOOK: 300 applications → 0 calls
       { const a = winH(t, 0.05, B(1) + 0.2); if (a > 0) { h.save(); h.globalAlpha = a;
         hsc(HW / 2, 330, popH(t, 0.15), () => { panel(110, 220, 860, 230);
@@ -257,6 +255,6 @@ window.SCENE = {
       ['whoosh', B(7), 0.5], ['pop', B(8) - 0.1, 0.4], ['whoosh', B(8) + 1.0, 0.4], ['kaching', B(8) + 1.3, 0.6], ['pop', B(9), 0.5], ['ding', B(10) + 0.1, 0.5], ['thud', B(10) + 1.2, 0.5],
       ['pop', B(11) + 0.1, 0.5], ['whoosh', B(12), 0.5], ['pop', B(12) + 0.6, 0.4], ['kaching', B(12) + 1.2, 0.6], ['thud', B(12) + 2.0, 0.5], ['whoosh', B(13), 0.5], ['ding', B(13) + 0.1, 0.6], ['pop', B(13) + 1.0, 0.5],
     ];
-    return { duration: D, update, shots, sfx, watermark: '@ai.jugaadd', endCard: 'FOLLOW @ai.jugaadd', music: {}, capFont: 'Inter Display', capMarginV: 150, capSize: 54 };
+    return { duration: D, update, shots, sfx, watermark: '@ai.jugaadd', endCard: 'FOLLOW @ai.jugaadd', music: {}, capFont: 'Inter Display', capMarginV: 330, capSize: 54 };
   },
 };
