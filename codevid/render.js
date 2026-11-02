@@ -124,12 +124,12 @@ function mix(info, T, D) {
 // ---------------------------------------------------------------- captions (ASS)
 const ts = t => `0:${String(Math.floor(t / 60)).padStart(2, '0')}:${(t % 60).toFixed(2).padStart(5, '0')}`;
 function captions(info, T, D, file) {
-  const font = info.capFont || 'DejaVu Sans', capV = info.capMarginV || 470;
+  const font = info.capFont || 'DejaVu Sans', capV = info.capMarginV || 470, capS = info.capSize || 72;
   const style = (n, size, prim, out, back, border, outline, shadow, align, mv, spacing = 0) => `Style: ${n},${font},${size},${prim},${prim},${out},${back},-1,0,0,0,100,100,${spacing},0,${border},${outline},${shadow},${align},70,70,${mv},1`;
   const head = '[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 0\n\n[V4+ Styles]\n' +
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n' +
-    [style('Raju', 72, '&H00FFFFFF', '&H00101010', '&H96000000', 1, 7, 3, 2, capV),
-     style('Bloc', 72, '&H0036C8FF', '&H00101010', '&H96000000', 1, 7, 3, 2, capV),
+    [style('Raju', capS, '&H00FFFFFF', '&H00101010', '&H96000000', 1, Math.round(capS / 10), 2, 2, capV),
+     style('Bloc', capS, '&H0036C8FF', '&H00101010', '&H96000000', 1, Math.round(capS / 10), 2, 2, capV),
      style('Count', 64, '&H00FFFFFF', '&H00000000', '&HC8301808', 3, 18, 0, 8, 150, 2),
      style('Badge', 46, '&H00FFFFFF', '&H00000000', '&HB4E46F2F', 3, 16, 0, 8, 160, 2),
      style('Big', 104, '&H0036C8FF', '&H00000000', '&H96000000', 1, 9, 4, 8, 330, 1),

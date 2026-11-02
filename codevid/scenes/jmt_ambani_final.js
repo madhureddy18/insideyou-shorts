@@ -113,20 +113,17 @@ window.SCENE = {
       const mTalk = K.voice('maddie', t), bTalk = K.voice('bittu', t);
       // where each one looks: at the speaker, or at the TV when numbers are up
       const onTV = tvBeat(t);
-      const mTarget = onTV ? 0.5 : speaking('bittu', t) ? 0.55 : lastSpeaker(t) === 'bittu' ? 0.45 : 0.15;
-      const bTarget = onTV ? 0.65 : speaking('maddie', t) ? -0.45 : -0.15;
-      const k = last < 0 ? 1 : cl((t - last) * 6); last = t;
+      const mTarget = onTV ? 0.22 : speaking('bittu', t) ? 0.22 : lastSpeaker(t) === 'bittu' ? 0.18 : 0.05;
+      const bTarget = onTV ? 0.25 : speaking('maddie', t) ? -0.25 : -0.1;
+      const k = last < 0 ? 1 : cl((t - last) * 2.5); last = t;
       mYaw = smooth(mYaw, mTarget, k); bYaw = smooth(bYaw, bTarget, k);
       // Maddie face + head motion
       const face = t >= B(13) && t < E(13) + 0.6 ? 'shock' : (t >= B(5) && t < E(5) + 0.4) || (t >= B(15) && t < E(15)) ? 'smile' : (t >= B(8) && t < E(8) + 0.3) ? 'shock' : (t >= B(12) && t < B(13)) ? 'worried' : speaking('maddie', t) ? 'neutral' : 'smile';
       M.head.update(t, { face, talk: mTalk });
-      M.head.rotation.y = mYaw + Math.sin(t * 0.8) * 0.04;
+      M.head.rotation.y = mYaw + Math.sin(t * 0.8) * 0.02;
       M.head.rotation.x = -0.05 + (mTalk > 0.05 ? Math.sin(t * 6.3) * 0.05 * mTalk : 0) + (speaking('bittu', t) ? Math.max(0, Math.sin(t * 2.4)) * 0.05 : 0);
-      M.head.rotation.z = Math.sin(t * 0.6) * 0.03 + (mTalk > 0.05 ? Math.sin(t * 3.1) * 0.03 : 0);
-      // hand gestures while talking (forearms lift and move)
-      const gest = speaking('maddie', t) ? 1 : 0;
-      for (const [sd, ph, amt] of [['R', 0, 1], ['L', 1.7, 0.6]]) { const lb = MB['LowerArm' + sd]; if (!lb) continue;
-        lb.rotation.x += -gest * amt * (0.18 + 0.14 * Math.sin(t * 4.2 + ph)); lb.rotation.z += gest * amt * 0.08 * Math.sin(t * 3.3 + ph); }
+      M.head.rotation.z = Math.sin(t * 0.6) * 0.015;
+      // (no arm gestures: arms stay still and natural)
       // Bittu
       Bt.update(t, { talk: bTalk, look: [bYaw, -0.05], mood: (t >= B(13) && t < E(13)) ? 'shock' : 'calm',
         flapL: speaking('bittu', t) ? 0.35 + 0.35 * Math.max(0, Math.sin(t * 5.1)) : (t >= B(16) + 1.2 ? 0.9 * Math.max(0, Math.sin(t * 9)) : 0.05),
@@ -323,6 +320,6 @@ window.SCENE = {
       ['whoosh', B(9) - 0.05, 0.5], ['bass', B(10), 0.7], ['riser', Math.max(0, B(12) - 1.6), 0.45], ['ding', B(12) + 1.0, 0.6],
       ['bass', B(13), 0.9], ['thud', B(13), 0.8], ['whoosh', B(14) - 0.05, 0.5], ['pop', B(15) + 0.1, 0.5], ['whoosh', B(16) - 0.05, 0.5],
     ];
-    return { duration: D, update, shots, sfx, watermark: '@just.money.things', endCard: 'FOLLOW @just.money.things', music: {}, capFont: 'Inter Display', capMarginV: 430 };
+    return { duration: D, update, shots, sfx, watermark: '@just.money.things', endCard: 'FOLLOW @just.money.things', music: {}, capFont: 'Inter Display', capMarginV: 150, capSize: 54 };
   },
 };

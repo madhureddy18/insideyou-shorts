@@ -16,3 +16,8 @@ Older look, V3:
 
 ## Chotu
 `K.makeChotu()` - round golden buddy, ₹ belly badge, big eyes. Voice: Kokoro am_michael (sid 16).
+
+## just.money.things reel rules (from Maddy's feedback, 2026-11-02)
+- Captions small and low: capSize ~54, capMarginV ~150 — never over faces.
+- No arm gestures on Maddie; head turns stay small (max ~0.25 rad) and slow. Calm, natural acting only.
+- Template: scenes/jmt_ambani_final.js (3D room, original Maddie V3 + halo Bittu, motion-graphics HUD layer, cards).
