@@ -21,3 +21,8 @@ Older look, V3:
 - Captions small and low: capSize ~54, capMarginV ~150 — never over faces.
 - No arm gestures on Maddie; head turns stay small (max ~0.25 rad) and slow. Calm, natural acting only.
 - Template: scenes/jmt_ambani_final.js (3D room, original Maddie V3 + halo Bittu, motion-graphics HUD layer, cards).
+
+## Robot sidekick (LOCKED 2026-11-03)
+- `K.makeRobo({ height: 0.9 })` — orange boxy robot, amber ear pads, antenna bulb, grey ring eyes, yellow mouth bar, small body + feet. **No halo, no gears.**
+- Talking: `robo.update(t, { talk: K.voice(who, t), mood: 'calm'|'smile'|'shock', look: [yaw, pitch] })`.
+- Never use the real Claude logo or the name "Claude" for the character; the tool can be named in scripts.
