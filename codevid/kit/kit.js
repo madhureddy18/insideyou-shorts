@@ -1342,6 +1342,58 @@
     bitt.update(0);
     return bitt;
   };
+
+  // Robo: orange boxy robot head (from Maddy's reference, no gears) on a small body; mouth bar talks, eyes blink.
+  K.makeRobo = ({ height = 0.9, halo = false } = {}) => {
+    const g = new THREE.Group();
+    const RB = window.RoundedBoxGeometry;
+    const M = (c, r = 0.55, m = 0.05) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
+    const orange = M(0xe0663a, 0.5), orangeD = M(0xc4532c, 0.55), amber = M(0xf0a63a, 0.45), grey = M(0x6c6a6e, 0.5, 0.3),
+          ringM = M(0xd9d6d0, 0.35, 0.2), pupM = M(0x3c3a3e, 0.3), mouthM = M(0xf2b544, 0.45), dark = M(0x2a1410, 0.8);
+    const add = (geo, m, x, y, z, parent) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = o.receiveShadow = true; parent.add(o); return o; };
+    const body = new THREE.Group(); g.add(body);
+    // body: smaller rounded box + neck
+    add(new RB(0.46, 0.34, 0.32, 5, 0.08), orangeD, 0, 0.2, 0, body);
+    add(new RB(0.2, 0.06, 0.02, 3, 0.01), amber, 0, 0.24, 0.165, body);          // chest panel
+    add(new THREE.CylinderGeometry(0.07, 0.08, 0.1, 20), grey, 0, 0.41, 0, body); // neck
+    for (const sx of [-1, 1]) { const a = add(new THREE.CapsuleGeometry(0.045, 0.16, 6, 12), orangeD, sx * 0.27, 0.2, 0, body); a.rotation.z = sx * 0.25; }
+    for (const sx of [-1, 1]) add(new RB(0.14, 0.08, 0.2, 3, 0.03), grey, sx * 0.12, 0.0, 0.02, g); // feet
+    const head = new THREE.Group(); head.position.set(0, 0.67, 0); body.add(head);
+    add(new RB(0.62, 0.44, 0.42, 6, 0.1), orange, 0, 0, 0, head);
+    for (const sx of [-1, 1]) add(new RB(0.07, 0.2, 0.2, 4, 0.03), amber, sx * 0.335, 0, 0, head);   // ear pads
+    add(new THREE.CylinderGeometry(0.012, 0.012, 0.13, 10), grey, 0, 0.28, 0, head);                  // antenna
+    const bulb = add(new THREE.SphereGeometry(0.035, 20, 14), amber, 0, 0.36, 0, head);
+    const bulbL = new THREE.PointLight(0xffb84a, 0.0, 0.6, 2); bulbL.position.copy(bulb.position); head.add(bulbL);
+    const eyes = [-1, 1].map(sx => { const e = new THREE.Group(); e.position.set(sx * 0.13, 0.04, 0.21); head.add(e);
+      const r = add(new THREE.TorusGeometry(0.06, 0.022, 14, 36), ringM, 0, 0, 0, e);
+      const p = add(new THREE.SphereGeometry(0.047, 20, 14), pupM, 0, 0, -0.01, e); p.scale.z = 0.5;
+      const gl = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff })); gl.position.set(0.016, 0.018, 0.02); e.add(gl);
+      return e; });
+    const mouthG = new THREE.Group(); mouthG.position.set(0, -0.11, 0.212); head.add(mouthG);
+    const mouthIn = add(new RB(0.16, 0.05, 0.02, 3, 0.008), dark, 0, 0, -0.004, mouthG);
+    const mouth = add(new RB(0.16, 0.045, 0.02, 3, 0.012), mouthM, 0, 0, 0.002, mouthG);
+    let ring = null;
+    if (halo) {
+      ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.026, 14, 48), new THREE.MeshStandardMaterial({ color: 0xffd36a, emissive: 0xffc23d, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.4 }));
+      ring.rotation.x = Math.PI / 2 - 0.42; ring.position.set(0, 0.53, -0.01); head.add(ring);
+    }
+    g.scale.setScalar(height / 1.05);
+    const robo = { g, head, body, eyes, ring, bulb };
+    robo.update = (t, { talk = 0, look = [0, 0], blink = true, mood = 'calm' } = {}) => {
+      const bl = blink && ((t + 0.7) % 3.9) < 0.12 ? 0.12 : 1;
+      eyes.forEach(e => { e.scale.set(mood === 'shock' ? 1.25 : 1, bl * (mood === 'shock' ? 1.25 : 1), 1); });
+      const open = K.clamp(talk) + (mood === 'shock' ? 0.6 : 0);
+      mouthIn.scale.y = 1 + open * 1.6; mouth.position.y = -open * 0.018; mouth.scale.y = 1 - Math.min(open, 1) * 0.35;
+      mouth.scale.x = mood === 'smile' ? 1.1 : 1;
+      bulb.material.emissive = new THREE.Color(0xffa020); bulb.material.emissiveIntensity = 0.3 + talk * 2.2; bulbL.intensity = talk * 0.8;
+      head.rotation.y = look[0] + Math.sin(t * 0.8) * 0.05; head.rotation.x = look[1] + Math.sin(t * 1.2) * 0.02 + (talk > 0.05 ? Math.sin(t * 8) * 0.03 * talk : 0);
+      head.rotation.z = Math.sin(t * 0.6 + 1) * 0.035;
+      body.position.y = Math.sin(t * 2.0) * 0.006;
+      if (ring) { ring.position.y = 0.53 + Math.sin(t * 2.1) * 0.018; ring.rotation.z = t * 0.6; }
+    };
+    robo.update(0);
+    return robo;
+  };
   // Voice loudness 0..1 for whoever is speaking at t (from render.js line envelopes), smoothed for mouths.
   K.voice = (who, t) => {
     const l = (K.T && K.T.lines || []).find(l => l.who === who && t >= l.t && t < l.end); if (!l || !l.env) return 0;

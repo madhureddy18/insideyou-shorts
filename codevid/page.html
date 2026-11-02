@@ -13,6 +13,8 @@
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
   import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
   import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+  import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+  window.RoundedBoxGeometry = RoundedBoxGeometry;
   window.THREE = THREE;
   window.ASSETS = {};
   window.GLTF = { SkeletonUtils, load: url => new Promise((ok, bad) => { const l = new GLTFLoader(); l.setMeshoptDecoder(MeshoptDecoder); l.load(url, ok, undefined, bad); }) };
