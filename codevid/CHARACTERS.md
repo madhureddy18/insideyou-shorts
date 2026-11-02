@@ -1,6 +1,9 @@
 # Maddie & Chotu - official characters (locked 2026-10-30)
 
 ## Maddie
+**Current look (2026-11-02): `K.makeMaddieV4()`** - bigger round head, warm skin, dark wavy hair, no glasses, black collared shirt with buttons, beige trousers, dark brown shoes. Same body, animations and `head.update` as V3 below.
+
+Older look, V3:
 `K.makeMaddieV3()` - add `K.MADDIE_ASSET` ('assets/chars/worker.glb') to `SCENE.assets`.
 - Body: Quaternius CC0 rigged man (assets/chars/worker.glb), 12% bulkier, height 2.15
 - Head: round low-poly face (dot eyes, nose, ears) + textured side-swept blond hair (`K.guyHead`)

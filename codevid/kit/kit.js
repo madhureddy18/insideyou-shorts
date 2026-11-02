@@ -676,7 +676,7 @@
   };
   // The version-1 head on its own (round low-poly face, dot eyes, nose, ears, swept hair), for putting on any body.
   // Built for radius ~0.42 at the origin. head.update(t, {talking, face}) blinks and moves the mouth.
-  K.guyHead = ({ skin = 0xe9c4a6, hair = 0xdcc58a } = {}) => {
+  K.guyHead = ({ skin = 0xe9c4a6, hair = 0xdcc58a, hairStyle = 'swept' } = {}) => {
     const g = new THREE.Group();
     const skinM = K.M(skin, { roughness: 0.6, flatShading: true }), dark = K.M(0x111111, { roughness: 0.4 });
     const mesh = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; g.add(o); return o; };
@@ -689,7 +689,7 @@
     const mouth = mesh(new THREE.BoxGeometry(0.1, 0.028, 0.02), K.M(0x4a1c12), 0, -0.19, 0.385);
     const smile = mesh(new THREE.TorusGeometry(0.075, 0.016, 6, 14, Math.PI * 0.85), K.M(0x4a1c12), 0.012, -0.15, 0.378);
     smile.rotation.z = Math.PI + 0.24; smile.rotation.x = -0.25; smile.visible = false;                          // a confident half-smile
-    g.add(K.sweptHair(hair));
+    g.add(hairStyle === 'wavy' ? K.wavyHair(hair) : K.sweptHair(hair));
     g.userData = { eyes, brows, mouth };
     g.update = (t, { talking = false, face = 'neutral' } = {}) => {
       const blink = ((t + 0.4) % 3.4) < 0.1 ? 0.15 : 1;
@@ -838,6 +838,84 @@
     M.g.scale.x *= bulk; M.g.scale.z *= bulk * 0.97;
     const head = K.guyHead({ skin, hair });
     const holder = K.swapHead(M, head, { offset: [0, 0.19, 0.01], scale: 0.335 });
+    head.scale.x /= bulk; head.scale.z /= bulk * 0.97;
+    M.head = head;
+    return M;
+  };
+
+  // Voluminous wavy hair (dark, brushed up and back with loose waves), built for a head of radius ~0.42 at the origin.
+  K.wavyHair = (color = 0x2b1d15) => {
+    const mat = K.M(color, { roughness: 0.8, flatShading: true });
+    const g = new THREE.Group(), rnd = K.rng(23), up = new THREE.Vector3(0, 1, 0);
+    const add = (geo, pos, normal, flow, sc, twist = 0) => {
+      const o = new THREE.Mesh(geo, mat); o.castShadow = true;
+      const n = normal.clone().normalize(), f = flow.clone().addScaledVector(n, -flow.dot(n)).normalize(), x = new THREE.Vector3().crossVectors(n, f);
+      o.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, n, f));
+      o.rotateOnAxis(new THREE.Vector3(0, 1, 0), twist);
+      o.position.copy(pos); o.scale.set(...sc); g.add(o); return o;
+    };
+    // base shell so no scalp shows between the waves
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.455, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.47), mat);
+    cap.scale.set(0.95, 1.1, 1.0); cap.rotation.x = -0.5; cap.position.set(0, 0.02, -0.02); cap.castShadow = true; g.add(cap);
+    // wave clumps laid over the head, flowing back from the forehead
+    const blob = new THREE.IcosahedronGeometry(0.1, 1);
+    for (let row = 0; row < 7; row++) {
+      const th = 0.12 + row * 0.27;                                   // angle down from the crown
+      const n = Math.max(5, Math.round(Math.sin(th) * 15));
+      for (let k = 0; k < n; k++) {
+        const ph = (k + (row % 2) * 0.5) / n * Math.PI * 2 + (rnd() - 0.5) * 0.2;
+        const d = new THREE.Vector3(Math.sin(th) * Math.sin(ph), Math.cos(th), Math.sin(th) * Math.cos(ph));
+        const front = d.z, side = Math.abs(d.x);
+        if (front > 0.05 && th > 0.8) continue;                       // forehead and face stay clear
+        if (side > 0.55 && th > 1.3) continue;                         // above the ears
+        if (th > 1.6 && front > -0.55) continue;                       // only the back goes low
+        const lift = 1 + Math.pow(Math.max(0, d.y), 2) * 0.26 + Math.max(0, front) * Math.max(0, d.y) * 0.2;
+        const pos = d.clone().multiply(new THREE.Vector3(0.405, 0.475, 0.43)).multiplyScalar(lift);
+        const flow = new THREE.Vector3(0.18, 0, -1).add(new THREE.Vector3(0, -0.6 * (1 - d.y), 0));
+        const s = 0.9 + rnd() * 0.45;
+        add(blob, pos, d, flow, [1.3 * s, 0.75, 1.95 * s], (row + k) % 2 ? 0.5 : -0.4);
+      }
+    }
+    // the front: big waves lifted off the forehead and swept to one side
+    [[-0.22, 0.46, 0.25, 1.25], [-0.03, 0.55, 0.26, 1.45], [0.16, 0.52, 0.24, 1.35], [0.31, 0.4, 0.2, 1.05], [-0.34, 0.36, 0.17, 0.95], [0.05, 0.62, 0.05, 1.5], [-0.18, 0.6, -0.08, 1.3], [0.22, 0.58, -0.1, 1.3]].forEach(([x, y, z, s], i) => {
+      const pos = new THREE.Vector3(x, y, z);
+      add(new THREE.IcosahedronGeometry(0.11, 1), pos, pos.clone().setY(pos.y + 0.25), new THREE.Vector3(0.55, 0.25, -0.6), [1.35 * s, 0.8, 1.85 * s], i % 2 ? 0.55 : -0.35);
+    });
+    // short sides over the ears, slightly wavy
+    for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) {
+      const pos = new THREE.Vector3(sx * 0.4, 0.12 - i * 0.07, -0.02 - i * 0.12);
+      add(blob, pos, new THREE.Vector3(sx, 0.25, -0.1), new THREE.Vector3(0, -0.5, -1), [1.0, 0.45, 1.5], i % 2 ? 0.4 : -0.4);
+    }
+    return g;
+  };
+
+  // MADDIE V4 (Nov 2026 look): bigger round head, warm skin, dark wavy hair, no glasses, black collared shirt,
+  // beige trousers, dark brown shoes. Same body / animations as V3. Needs K.MADDIE_ASSET in SCENE.assets.
+  K.makeMaddieV4 = ({ height = 2.15, bulk = 1.1, shirt = 0x19191b, pants = 0xcdb894, shoes = 0x5a3520, skin = 0xc98a5c, hair = 0x2b1d15, headScale = 0.4 } = {}) => {
+    const M = K.model(K.MADDIE_ASSET, { height, colors: { Shirt: shirt, Pants: pants, Skin: skin, Socks: shoes, Hair: hair } });
+    M.play('Man_Idle', 0); M.g.updateMatrixWorld(true);
+    M.g.traverse(o => o.isMesh && [].concat(o.material).forEach(m => { m.roughness = Math.max(m.roughness ?? 0, 0.8); m.metalness = 0; }));
+    const shirtM = K.M(shirt, { roughness: 0.8, flatShading: true, side: THREE.DoubleSide }), pantM = K.M(pants, { roughness: 0.9, flatShading: true, side: THREE.DoubleSide });
+    K.shellByBones(M, ['ShoulderL', 'ShoulderR', 'UpperArmL', 'UpperArmR', 'LowerArmL', 'LowerArmR'], shirtM, { inflate: 0.007, minWeight: 0.2 });
+    for (const sd of ['L', 'R']) { K.boneTube(M, 'UpperArm' + sd, { r1: 0.092, r2: 0.078, mat: shirtM, from: -0.04, to: 1.08, seg: 12 }); K.boneTube(M, 'LowerArm' + sd, { r1: 0.07, r2: 0.058, mat: shirtM, from: -0.08, to: 0.9, seg: 12 }); }
+    K.shellByBones(M, ['UpperLegL', 'UpperLegR', 'LowerLegL', 'LowerLegR'], pantM, { inflate: 0.007, minWeight: 0.2 });
+    // shirt collar: band round the neck + two pointed flaps
+    const colM = K.M(0x323238, { roughness: 0.55, flatShading: true, side: THREE.DoubleSide });
+    const colG = new THREE.Group();
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.095, 0.05, 16, 1, true), colM); colG.add(band);
+    for (const sx of [-1, 1]) {
+      const flap = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.014, 0.115), colM);
+      flap.position.set(sx * 0.058, -0.035, 0.088); flap.rotation.set(1.05, sx * 0.6, sx * 0.3); colG.add(flap);
+    }
+    K.attachToBone(M, 'Neck', colG, { offset: [0, -0.04, -0.005], scale: 1 });
+    // button placket down the front
+    const front = new THREE.Group(), btnM = K.M(0x2c2c30, { roughness: 0.4 });
+    const plk = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.42, 0.012), K.M(0x1e1e21, { roughness: 0.6 })); plk.position.set(0, 0.0, 0.138); front.add(plk);
+    for (let i = 0; i < 4; i++) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.006, 8), btnM); b.rotation.x = Math.PI / 2; b.position.set(0, 0.16 - i * 0.11, 0.146); front.add(b); }
+    K.attachToBone(M, 'Torso', front, { offset: [0, 0, 0], scale: 1 });
+    M.g.scale.x *= bulk; M.g.scale.z *= bulk * 0.97;
+    const head = K.guyHead({ skin, hair, hairStyle: 'wavy' });
+    K.swapHead(M, head, { offset: [0, 0.205, 0.012], scale: headScale });
     head.scale.x /= bulk; head.scale.z /= bulk * 0.97;
     M.head = head;
     return M;

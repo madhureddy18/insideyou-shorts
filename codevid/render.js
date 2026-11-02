@@ -47,7 +47,9 @@ function voices(lines) {
   const cache = path.join(dir, 'key.json');
   let durs;
   const mine = i => fs.existsSync(own) && fs.readdirSync(own).find(f => f.startsWith(String(i + 1).padStart(2, '0') + '.'));
-  if (fs.existsSync(cache) && fs.readFileSync(cache, 'utf8') === key && lines.every((_, i) => fs.existsSync(path.join(dir, String(i + 1).padStart(2, '0') + '.wav')))) {
+  if (process.env.SILENT) {            // stills only: skip TTS, 1 s of silence per line
+    durs = lines.map((_, i) => { ff(['-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono', '-t', '1', path.join(dir, String(i + 1).padStart(2, '0') + '.wav')]); return 1; });
+  } else if (fs.existsSync(cache) && fs.readFileSync(cache, 'utf8') === key && lines.every((_, i) => fs.existsSync(path.join(dir, String(i + 1).padStart(2, '0') + '.wav')))) {
     durs = lines.map((_, i) => dur(path.join(dir, String(i + 1).padStart(2, '0') + '.wav')));
   } else {
     const lf = path.join(dir, 'lines.json'); fs.writeFileSync(lf, JSON.stringify(lines));
@@ -151,7 +153,7 @@ function captions(info, T, D, file) {
 // ---------------------------------------------------------------- main
 (async () => {
   const srv = await serve(), port = srv.address().port;
-  const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+  const browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}), args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const page = await browser.newPage({ viewport: { width: 1080, height: 1920 } });
   page.on('pageerror', e => console.log('PAGE ERROR', e.message));
   page.on('console', m => { if (m.type() === 'error') console.log('PAGE', m.text()); });
