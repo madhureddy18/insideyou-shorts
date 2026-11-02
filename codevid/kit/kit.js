@@ -1404,25 +1404,38 @@
     const add = (geo, m, x, y, z, parent) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = o.receiveShadow = true; parent.add(o); return o; };
     const cap = (r, len, m, parent) => { const o = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 8, 16), m); o.castShadow = o.receiveShadow = true; parent.add(o); return o; };
     const body = new THREE.Group(); body.position.y = seatY; g.add(body);
-    // legs (seated): thighs forward, shins down
+    const lathe = (pts, m, parent, flat = 0.68) => { const o = new THREE.Mesh(new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), 40), m); o.scale.z = flat; o.castShadow = o.receiveShadow = true; parent.add(o); return o; };
+    const limb = (a, b, r, m, parent) => {            // capsule from point a to point b (parent space) so joints always connect
+      const A = new THREE.Vector3(...a), Bv = new THREE.Vector3(...b), d = Bv.clone().sub(A), len = d.length();
+      const o = new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(0.001, len), 10, 20), m); o.castShadow = o.receiveShadow = true;
+      o.position.copy(A).add(Bv).multiplyScalar(0.5); o.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()); parent.add(o); return o; };
+    // pelvis + seated legs (thigh forward, knee, shin down) built from joined capsules, no gaps
+    lathe([[0, -0.02], [0.15, -0.02], [0.185, 0.03], [0.19, 0.1], [0.17, 0.15], [0, 0.16]], pantsM, body, 0.75).position.y = -0.02;
     for (const sx of [-1, 1]) {
-      const th = cap(0.075, 0.26, pantsM, body); th.rotation.x = Math.PI / 2; th.position.set(sx * 0.11, 0.06, 0.17);
-      const sh = cap(0.068, 0.32, pantsM, g); sh.position.set(sx * 0.11, seatY - 0.2, 0.36);
-      add(new RB(0.13, 0.08, 0.22, 3, 0.035), shoeM, sx * 0.11, 0.04, 0.4, g);
+      const hip = [sx * 0.095, 0.05, 0.0], knee = [sx * 0.1, 0.05, 0.33];
+      limb(hip, knee, 0.088, pantsM, body);
+      const kneeW = [knee[0], seatY + knee[1], knee[2]], ank = [sx * 0.1, 0.1, 0.36];
+      limb(kneeW, ank, 0.072, pantsM, g);
+      const shoe = add(new RB(0.13, 0.085, 0.24, 4, 0.04), shoeM, sx * 0.1, 0.043, 0.4, g);
+      add(new RB(0.135, 0.02, 0.245, 2, 0.008), M(0xeeeeee, 0.6), sx * 0.1, 0.008, 0.4, g);   // white sole
     }
-    add(new RB(0.36, 0.14, 0.3, 4, 0.06), pantsM, 0, 0.06, 0.02, body);                    // hips
-    const chest = new THREE.Group(); chest.position.set(0, 0.12, 0); body.add(chest);
-    add(new RB(0.4, 0.38, 0.26, 5, 0.1), shirtM, 0, 0.19, 0, chest);                       // torso (black tee)
-    add(new THREE.CylinderGeometry(0.055, 0.06, 0.06, 16), skinM, 0, 0.39, 0, chest);       // neck
-    // arms: shoulder group -> upper arm down, elbow group -> forearm forward to the desk
+    const chest = new THREE.Group(); chest.position.set(0, 0.1, 0); body.add(chest);
+    // torso: one smooth shape, narrow waist, rounded shoulders (black tee)
+    lathe([[0, 0], [0.165, 0], [0.18, 0.05], [0.178, 0.16], [0.192, 0.26], [0.2, 0.31], [0.168, 0.365], [0.09, 0.395], [0, 0.4]], shirtM, chest, 0.66);
+    add(new THREE.TorusGeometry(0.062, 0.012, 8, 24), M(0x2a2a32, 0.8), 0, 0.392, 0, chest).rotation.x = Math.PI / 2;  // collar
+    add(new THREE.CylinderGeometry(0.052, 0.058, 0.07, 18), skinM, 0, 0.41, 0, chest);                                  // neck
+    // arms: shoulder sits inside the torso; short tee sleeve, skin arm, elbow, forearm to the desk, mitten hand + thumb
     const arms = [-1, 1].map(sx => {
-      const sh = new THREE.Group(); sh.position.set(sx * 0.235, 0.32, 0); chest.add(sh);
-      add(new THREE.SphereGeometry(0.075, 18, 12), shirtM, 0, 0, 0, sh);
-      const up = cap(0.06, 0.18, shirtM, sh); up.position.set(0, -0.12, 0);
-      const el = new THREE.Group(); el.position.set(0, -0.24, 0); sh.add(el);
-      const fo = cap(0.052, 0.2, skinM, el); fo.rotation.x = Math.PI / 2; fo.position.set(0, 0, 0.12);
-      const hand = add(new THREE.SphereGeometry(0.06, 16, 12), skinM, 0, 0, 0.27, el); hand.scale.set(1, 0.7, 1.15);
-      sh.rotation.x = -0.25; el.rotation.x = -0.15; sh.rotation.z = sx * 0.06;
+      const sh = new THREE.Group(); sh.position.set(sx * 0.175, 0.315, 0); chest.add(sh);
+      limb([0, 0.0, 0], [sx * 0.02, -0.1, 0], 0.07, shirtM, sh);            // sleeve (blends into shoulder)
+      limb([sx * 0.015, -0.07, 0], [sx * 0.035, -0.22, 0], 0.05, skinM, sh); // upper arm
+      const el = new THREE.Group(); el.position.set(sx * 0.035, -0.22, 0); sh.add(el);
+      add(new THREE.SphereGeometry(0.05, 16, 12), skinM, 0, 0, 0, el);       // elbow
+      limb([0, 0, 0], [0, 0, 0.21], 0.045, skinM, el);                       // forearm
+      const hand = new THREE.Group(); hand.position.set(0, 0, 0.26); el.add(hand);
+      add(new RB(0.1, 0.05, 0.11, 3, 0.022), skinM, 0, 0, 0, hand);
+      const th = add(new THREE.CapsuleGeometry(0.016, 0.03, 4, 8), skinM, -sx * 0.05, 0.008, -0.01, hand); th.rotation.z = sx * 1.1;
+      sh.rotation.x = -0.3; el.rotation.x = -0.1; sh.rotation.z = sx * 0.05;
       return { sh, el, hand, sx };
     });
     // head
@@ -1452,16 +1465,16 @@
       const bl = ((t + 0.4) % 4.1) < 0.12 ? 0.1 : 1, shock = face === 'shock', sm = face === 'smile', worried = face === 'worried';
       eyes.forEach(e => e.scale.set(shock ? 1.2 : 1, bl * (shock ? 1.3 : 1), 1));
       brows.forEach((b, i) => { const sx = i ? 1 : -1; b.position.y = 0.33 + (shock ? 0.035 : worried ? 0.012 : sm ? 0.008 : 0); b.rotation.z = worried ? -sx * 0.25 : shock ? sx * 0.08 : 0; });
-      const open = K.clamp(talk) + (shock ? 0.9 : 0);
+      const open = K.clamp(talk) * 0.85 + (shock ? 0.6 : 0);
       const talking = open > 0.04;
       mouthO.visible = talking || !sm; smile.visible = sm && !talking;
-      mouthO.scale.set(talking ? 0.8 + 0.2 * Math.min(open, 1) : (sm ? 1 : 0.6), talking ? 0.15 + Math.min(open, 1.2) * 0.75 : 0.12, 0.3);
-      tongue.visible = open > 0.35; tongue.scale.y = 0.3 + open * 0.3;
+      mouthO.scale.set(talking ? 0.62 + 0.14 * Math.min(open, 1) : (sm ? 1 : 0.5), talking ? 0.1 + Math.min(open, 1) * 0.42 : 0.1, 0.3);
+      tongue.visible = open > 0.6; tongue.scale.set(0.7, 0.25 + open * 0.15, 0.3);
       head.rotation.y = look[0] + Math.sin(t * 0.7) * 0.03;
       head.rotation.x = look[1] + Math.sin(t * 1.1) * 0.015 + (talk > 0.05 ? Math.sin(t * 6.5) * 0.04 * talk : 0) - (shock ? 0.08 : 0);
       head.rotation.z = Math.sin(t * 0.5 + 2) * 0.025 + (worried ? 0.06 : 0);
       chest.rotation.x = -lean * 0.25 + Math.sin(t * 1.6) * 0.008; chest.scale.y = 1 + Math.sin(t * 1.6) * 0.006;
-      arms.forEach(a => { const k = type * Math.max(0, Math.sin(t * 13 + (a.sx > 0 ? 0 : 1.7))); a.el.rotation.x = -0.15 + k * 0.08; a.sh.rotation.x = -0.25 + lean * 0.25; });
+      arms.forEach(a => { const k = type * Math.max(0, Math.sin(t * 13 + (a.sx > 0 ? 0 : 1.7))); a.el.rotation.x = -0.1 + k * 0.07; a.sh.rotation.x = -0.3 + lean * 0.25; });
     };
     mad.update(0);
     return mad;
