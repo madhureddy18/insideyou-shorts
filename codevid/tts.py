@@ -17,12 +17,12 @@ MODEL_DIR = os.environ.get("KOKORO_DIR", os.path.join(os.path.dirname(__file__),
 
 # character -> (Kokoro speaker id, speed). IDs from the model's own speaker table.
 VOICES = {
-    "maddie": (18, 1.08),    # am_puck    - bright, energetic, curious
+    "maddie": (18, 1.0),     # am_puck    - bright, energetic, curious
     "chotu": (16, 1.0),      # am_michael - warm, confident explainer
     "narrator": (16, 1.0),
     "speaker": (33, 0.95),   # Hindi female voice for the payment soundbox
     "raju": (18, 1.08), "bloc": (16, 0.98),
-    "bittu": (26, 1.2),      # bm_george - dry, calm British genius (the penguin)
+    "bittu": (26, 1.0),      # bm_george - dry, calm British genius (the penguin)
 }
 # exact pronunciations for our names / Indian words (Kokoro phoneme symbols, space separated)
 CUSTOM = {
