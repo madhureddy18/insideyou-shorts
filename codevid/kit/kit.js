@@ -691,14 +691,16 @@
     smile.rotation.z = Math.PI + 0.24; smile.rotation.x = -0.25; smile.visible = false;                          // a confident half-smile
     g.add(hairStyle === 'sculpt' ? K.sculptHair(hair) : hairStyle === 'wavy' ? K.wavyHair(hair) : K.sweptHair(hair));
     g.userData = { eyes, brows, mouth };
-    g.update = (t, { talking = false, face = 'neutral' } = {}) => {
+    g.update = (t, { talking = false, face = 'neutral', talk = null } = {}) => {
+      if (talk != null) talking = talk > 0.04;
       const blink = ((t + 0.4) % 3.4) < 0.1 ? 0.15 : 1;
       eyes.forEach(e => e.scale.set(1, (face === 'happy' ? 0.6 : face === 'smile' ? 0.8 : face === 'shock' ? 1.4 : 1) * blink, 1));
-      brows.forEach((b, i) => { b.position.y = face === 'shock' ? 0.25 : 0.2; b.rotation.z = face === 'worried' ? (i ? 0.25 : -0.25) : 0; });
+      brows.forEach((b, i) => { b.position.y = face === 'shock' ? 0.25 : face === 'worried' ? 0.21 : 0.2; b.rotation.z = face === 'worried' ? (i ? 0.25 : -0.25) : 0; });
       let mw = face === 'happy' ? 1.35 : 1, mh = face === 'shock' ? 3 : 1;
-      if (talking) mh *= 1 + Math.abs(Math.sin(t * 15.5) * Math.sin(t * 6.1 + 1)) * 3;
+      if (talk != null) { mh *= 1 + talk * 2.6; mw *= 1 + talk * 0.1; }
+      else if (talking) mh *= 1 + Math.abs(Math.sin(t * 15.5) * Math.sin(t * 6.1 + 1)) * 3;
       mouth.scale.set(mw, mh, 1);
-      smile.visible = face === 'smile' && !talking; mouth.visible = !smile.visible;
+      smile.visible = (face === 'smile' || face === 'happy') && !talking; mouth.visible = !smile.visible;
     };
     return g;
   };
@@ -818,10 +820,17 @@
   K.makeMaddieV3 = ({ height = 2.15, bulk = 1.12, hoodie = 0x1f2a44, pants = 0xcdb894, skin = 0xf0c9a8, hair = 0xdcc58a } = {}) => {
     const M = K.model(K.MADDIE_ASSET, { height, colors: { Shirt: hoodie, Pants: pants, Skin: skin, Socks: 0xf2f2f2 } });
     M.play('Man_Idle', 0); M.g.updateMatrixWorld(true);
-    const hoodM = K.M(hoodie, { roughness: 0.9, flatShading: true, side: THREE.DoubleSide }), pantM = K.M(pants, { roughness: 0.9, flatShading: true, side: THREE.DoubleSide });
+    M.g.traverse(o => o.isMesh && [].concat(o.material).forEach(m => { m.roughness = 0.92; m.metalness = 0; }));   // matte clay look, no shiny streaks
+    const hoodM = K.M(hoodie, { roughness: 0.95, metalness: 0, flatShading: true, side: THREE.DoubleSide }), pantM = K.M(pants, { roughness: 0.95, metalness: 0, flatShading: true, side: THREE.DoubleSide });
     // long sleeves + full-length trousers: shells made from the model's own arm / leg skin
     K.shellByBones(M, ['ShoulderL', 'ShoulderR', 'UpperArmL', 'UpperArmR', 'LowerArmL', 'LowerArmR'], hoodM, { inflate: 0.008, minWeight: 0.2 });
-    for (const sd of ['L', 'R']) K.boneTube(M, 'UpperArm' + sd, { r1: 0.086, r2: 0.074, mat: hoodM, from: -0.02, to: 1.0, seg: 12 });   // covers the tee-sleeve hem
+    for (const sd of ['L', 'R']) {                       // full sleeves: upper + lower arm tubes overlap at the elbow, so no skin shows
+      K.boneTube(M, 'UpperArm' + sd, { r1: 0.088, r2: 0.076, mat: hoodM, from: -0.04, to: 1.08, seg: 12 });
+      K.boneTube(M, 'LowerArm' + sd, { r1: 0.074, r2: 0.064, mat: hoodM, from: -0.1, to: 0.88, seg: 12 });
+      const cuff = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.016, 8, 16), K.M(0x18213a, { roughness: 0.95, flatShading: true }));
+      const cg = new THREE.Group(); cg.add(cuff); cuff.rotation.x = Math.PI / 2; K.boneThing(M, 'LowerArm' + sd, cg, { pos: [0, 0, 0] });
+      let lb = null; M.g.traverse(o => { if (o.isBone && o.name === 'LowerArm' + sd) lb = o; });
+      const ch = lb.children.find(c => c.isBone); if (ch) cg.position.copy(ch.position).multiplyScalar(0.86); }
     K.shellByBones(M, ['UpperLegL', 'UpperLegR', 'LowerLegL', 'LowerLegR'], pantM, { inflate: 0.007, minWeight: 0.2 });
     // hood (rolled behind the neck), front pocket, drawstrings
     const hood = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.6), hoodM);
@@ -837,7 +846,8 @@
     // bulk: wider and deeper, same height; the head is scaled back so it stays round
     M.g.scale.x *= bulk; M.g.scale.z *= bulk * 0.97;
     const head = K.guyHead({ skin, hair });
-    const holder = K.swapHead(M, head, { offset: [0, 0.19, 0.01], scale: 0.335 });
+    head.traverse(o => { if (o.isMesh && o.material && o.material.roughness !== undefined) { o.material.roughness = Math.max(o.material.roughness, 0.55); o.material.metalness = 0; } });
+    const holder = K.swapHead(M, head, { offset: [0, 0.2, 0.012], scale: 0.36 });
     head.scale.x /= bulk; head.scale.z /= bulk * 0.97;
     M.head = head;
     return M;
@@ -1287,10 +1297,10 @@
 
   // BITTU the penguin (matches char-penguin.png): faceted clay penguin, navy back, white face + belly, orange beak + feet.
   // Beak opens with the voice; flippers gesture. b.update(t, { talk: 0..1, look: [yaw, pitch], flapL, flapR, blink, mood }).
-  K.makeBittu = ({ height = 0.85 } = {}) => {
+  K.makeBittu = ({ height = 0.85, body: bodyC = 0x1e2133, beakC = 0xf08a3c, halo = false } = {}) => {
     const g = new THREE.Group(), s = height / 1.0;
     const M = (c, r = 0.85) => K.M(c, { roughness: r, flatShading: true });
-    const navy = M(0x1e2133), white = M(0xf3f1ec), orange = M(0xf08a3c, 0.7), eyeM = K.M(0x0a0a0c, { roughness: 0.15 });
+    const navy = M(bodyC), white = M(0xf3ece2), orange = M(beakC, 0.7), eyeM = K.M(0x0a0a0c, { roughness: 0.15 });
     const mesh = (geo, m, x, y, z, parent = body) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; o.receiveShadow = true; parent.add(o); return o; };
     const body = new THREE.Group(); g.add(body);
     const torso = mesh(new THREE.IcosahedronGeometry(0.36, 2), navy, 0, 0.42, 0); torso.scale.set(1.0, 1.12, 0.92);
@@ -1309,8 +1319,14 @@
       const f = mesh(new THREE.IcosahedronGeometry(0.12, 1), navy, 0, -0.17, 0, p); f.scale.set(0.35, 1.3, 0.75); p.rotation.z = sx * 0.18; return p; };
     const flL = flip(1), flR = flip(-1);
     for (const sx of [-1, 1]) { const ft = mesh(new THREE.IcosahedronGeometry(0.075, 1), orange, sx * 0.12, 0.035, 0.08, g); ft.scale.set(1.15, 0.45, 1.5); }
+    let ring = null;
+    if (halo) {                                                   // a golden angel halo floating above the head
+      ring = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.026, 14, 48), new THREE.MeshStandardMaterial({ color: 0xffd36a, emissive: 0xffc23d, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.4 }));
+      ring.rotation.x = Math.PI / 2 - 0.42; ring.position.set(0, 0.38, -0.01); head.add(ring);
+      const glow = new THREE.PointLight(0xffc860, 0.6, 0.9, 2); glow.position.set(0, 0.34, 0); head.add(glow);
+    }
     g.scale.setScalar(s);
-    const bitt = { g, head, body, flL, flR, eyes };
+    const bitt = { g, head, body, flL, flR, eyes, ring };
     bitt.update = (t, { talk = 0, look = [0, 0], flapL = 0, flapR = 0, blink = true, mood = 'calm' } = {}) => {
       const bl2 = blink && ((t + 1.3) % 3.7) < 0.11 ? 0.12 : 1;
       eyes.forEach(e => e.scale.set(0.9, 1.05 * bl2 * (mood === 'shock' ? 1.3 : 1), 0.6));
@@ -1320,6 +1336,7 @@
       head.rotation.z = Math.sin(t * 0.7 + 1) * 0.04;
       body.position.y = Math.sin(t * 2.0) * 0.006; body.rotation.z = Math.sin(t * 1.1) * 0.02 + talk * Math.sin(t * 5) * 0.015;
       flL.rotation.z = 0.18 + flapL; flR.rotation.z = -0.18 - flapR;
+      if (ring) { ring.position.y = 0.38 + Math.sin(t * 2.1) * 0.018; ring.rotation.z = t * 0.6; ring.rotation.x = Math.PI / 2 - 0.42 + Math.sin(t * 1.3) * 0.05; }
       flL.rotation.x = -flapL * 0.5; flR.rotation.x = -flapR * 0.5;
     };
     bitt.update(0);
