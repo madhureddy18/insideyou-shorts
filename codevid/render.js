@@ -89,6 +89,7 @@ const SFX = {
   zap: "aevalsrc='0.32*sin(2*PI*(2400-1700*t/0.4)*t)*exp(-5*t)':s=44100:d=0.4",
   beep: "aevalsrc='0.3*sin(2*PI*1500*t)*exp(-38*t)':s=44100:d=0.12",
   chime: "aevalsrc='0.4*sin(2*PI*988*t)*exp(-7*t)*lt(t,0.15)+0.45*sin(2*PI*1319*t)*exp(-4*(t-0.14))*gte(t,0.14)':s=44100:d=1.1",
+  buzz: "aevalsrc='0.3*sin(2*PI*150*t)*(0.6+0.4*sin(2*PI*33*t))*lt(mod(t,0.45),0.28)':s=44100:d=0.95",
   boing: "aevalsrc='0.7*sin(2*PI*(180+520*t)*t)*exp(-4*t)':s=44100:d=0.7",
 };
 function music(D, m) {
@@ -137,7 +138,7 @@ function captions(info, T, D, file) {
      style('Mark', 30, '&H4DFFFFFF', '&H80000000', '&H00000000', 1, 2, 0, 9, 110, 3)].join('\n') +
     '\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n';
   const esc = s => String(s).replace(/[{}]/g, '');
-  const ev = [`Dialogue: 6,${ts(0)},${ts(D)},Mark,,0,0,0,,${esc(info.watermark || 'VERSE FILMS')}`];
+  const ev = info.watermark === false ? [] : [`Dialogue: 6,${ts(0)},${ts(D)},Mark,,0,0,0,,${esc(info.watermark || 'VERSE FILMS')}`];
   for (const l of T.lines) {                                    // speaker-coloured captions, 2-4 word chunks
     const words = l.text.split(/\s+/), chunks = [];
     for (let k = 0; k < words.length;) { const n = words.length - k <= 4 ? words.length - k : 3; chunks.push(words.slice(k, k + n).join(' ')); k += n; }

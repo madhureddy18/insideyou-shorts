@@ -28,7 +28,7 @@ VOICES = {
 # exact pronunciations for our names / Indian words (Kokoro phoneme symbols, space separated)
 CUSTOM = {
     "maddie": "m ˈ æ d i", "chotu": "ʧ ˈ O t u", "chotus": "ʧ ˈ O t u z", "lakh": "l ˈ ɑ k", "lakhs": "l ˈ ɑ k s",
-    "crore": "k ɹ ˈ O ɹ", "crores": "k ɹ ˈ O ɹ z", "paisa": "p ˈ I s ə", "rupees": "ɹ u p ˈ i z", "wala": "w ˈ ɑ l ə", "wala's": "w ˈ ɑ l ə z", "chai": "ʧ ˈ I", "bittu": "b ˈ ɪ t u", "claude": "k l ˈ ɔ d", "naukri": "n ˈ aʊ k ɹ i", "ambani": "ɑ m b ˈ ɑ n i", "ambani's": "ɑ m b ˈ ɑ n i z",
+    "crore": "k ɹ ˈ O ɹ", "crores": "k ɹ ˈ O ɹ z", "paisa": "p ˈ I s ə", "rupees": "ɹ u p ˈ i z", "wala": "w ˈ ɑ l ə", "wala's": "w ˈ ɑ l ə z", "chai": "ʧ ˈ I", "bittu": "b ˈ ɪ t u", "claude": "k l ˈ ɔ d", "naukri": "n ˈ W k ɹ i", "hr": "ˈ A ʧ ˈ ɑ ɹ", "ambani": "ɑ m b ˈ ɑ n i", "ambani's": "ɑ m b ˈ ɑ n i z",
 }
 ESPEAK_MAP = [("aɪ", "I"), ("aʊ", "W"), ("eɪ", "A"), ("ɔɪ", "Y"), ("oʊ", "O"), ("əʊ", "O"), ("tʃ", "ʧ"), ("dʒ", "ʤ"),
               ("ɚ", "əɹ"), ("ɝ", "ɜɹ"), ("ɾ", "T"), ("ɐ", "ə"), ("ᵻ", "ɪ"), ("r", "ɹ"), ("ː", ""), ("ʔ", ""), ("̩", "")]
