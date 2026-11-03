@@ -1379,13 +1379,13 @@
     }
     g.scale.setScalar(height / 1.05);
     const robo = { g, head, body, eyes, ring, bulb };
-    robo.update = (t, { talk = 0, look = [0, 0], blink = true, mood = 'calm' } = {}) => {
+    robo.update = (t, { talk = 0, look = [0, 0], blink = true, mood = 'calm', glow = true } = {}) => {
       const bl = blink && ((t + 0.7) % 3.9) < 0.12 ? 0.12 : 1;
       eyes.forEach(e => { e.scale.set(mood === 'shock' ? 1.25 : 1, bl * (mood === 'shock' ? 1.25 : 1), 1); });
       const open = K.clamp(talk) + (mood === 'shock' ? 0.6 : 0);
       mouthIn.scale.y = 1 + open * 1.6; mouth.position.y = -open * 0.018; mouth.scale.y = 1 - Math.min(open, 1) * 0.35;
       mouth.scale.x = mood === 'smile' ? 1.1 : 1;
-      bulb.material.emissive = new THREE.Color(0xffa020); bulb.material.emissiveIntensity = 0.3 + talk * 2.2; bulbL.intensity = talk * 0.8;
+      bulb.material.emissive = new THREE.Color(0xffa020); bulb.material.emissiveIntensity = glow ? 0.3 + talk * 2.2 : 0.15; bulbL.intensity = glow ? talk * 0.8 : 0;
       head.rotation.y = look[0] + Math.sin(t * 0.8) * 0.05; head.rotation.x = look[1] + Math.sin(t * 1.2) * 0.02 + (talk > 0.05 ? Math.sin(t * 8) * 0.03 * talk : 0);
       head.rotation.z = Math.sin(t * 0.6 + 1) * 0.035;
       body.position.y = Math.sin(t * 2.0) * 0.006;
